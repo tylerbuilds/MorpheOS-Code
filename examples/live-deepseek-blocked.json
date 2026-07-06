@@ -1,0 +1,23 @@
+{
+  "schema_version": "deepseek-harness.run.v1",
+  "project": "deepseek-harness-live-gate-smoke",
+  "description": "Example live DeepSeek request that should be blocked without approval, key and allow-live.",
+  "egress_class": "non_sensitive_bulk",
+  "transport": "deepseek",
+  "model": "deepseek-v4-flash",
+  "thinking": {
+    "type": "enabled",
+    "reasoning_effort": "high"
+  },
+  "response_format": "text",
+  "concurrency": 4,
+  "cost_cap_usd": 0.05,
+  "canonical_writes": false,
+  "external_side_effects": false,
+  "items": [
+    {
+      "id": "live-gate-001",
+      "prompt": "Return a one sentence non-sensitive smoke result."
+    }
+  ]
+}

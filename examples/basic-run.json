@@ -1,0 +1,25 @@
+{
+  "schema_version": "deepseek-harness.run.v1",
+  "project": "deepseek-harness-smoke",
+  "description": "Fake transport smoke batch",
+  "egress_class": "non_sensitive_bulk",
+  "transport": "fake",
+  "model": "deepseek-v4-flash",
+  "thinking": {
+    "type": "disabled"
+  },
+  "concurrency": 4,
+  "cost_cap_usd": 0.05,
+  "canonical_writes": false,
+  "external_side_effects": false,
+  "items": [
+    {
+      "id": "item-001",
+      "prompt": "Return a one sentence batch harness smoke result."
+    },
+    {
+      "id": "item-002",
+      "prompt": "Return a second one sentence batch harness smoke result."
+    }
+  ]
+}

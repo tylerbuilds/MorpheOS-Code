@@ -1,0 +1,28 @@
+service:
+  id: deepseek-harness
+  name: DeepSeek Harness
+  service_class: external_batch_harness
+  deploy_class: local_only
+  secret_policy: no_raw_secrets
+  backup_posture: git_remote_enough
+
+lanes:
+  read_only: true
+  draft_only: true
+  sandbox_prepare: true
+  local_workspace_apply: false
+  external_side_effects: false
+
+proof:
+  quick:
+    - npm run typecheck
+    - npm test
+
+guardrails:
+  canonical_state_write: false
+  command_centre_state_write: false
+  repo_apply: false
+  github_write: false
+  deploy: false
+  publish: false
+  live_deepseek_calls_require_approval_packet: true
