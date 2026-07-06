@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { dispatchProposal } from "../src/runner.js";
 import { buildExecutionPlan, parseManifest } from "../src/schema.js";
 
 test("rejects live DeepSeek without approval and live flag", () => {
@@ -40,4 +41,28 @@ test("allows fake non-sensitive batch", () => {
   const plan = buildExecutionPlan(manifest, { mode: "execute" });
   assert.equal(plan.ok, true);
   assert.equal(plan.item_count, 1);
+});
+
+test("builds Dispatch proposal without execution authority", () => {
+  const proposal = dispatchProposal({
+    schema_version: "deepseek-harness.run.v1",
+    project: "unit",
+    egress_class: "non_sensitive_bulk",
+    transport: "fake",
+    model: "deepseek-v4-flash",
+    concurrency: 2,
+    cost_cap_usd: 0.1,
+    canonical_writes: false,
+    external_side_effects: false,
+    items: [{ id: "a", prompt: "hello" }]
+  }) as {
+    schema_version: string;
+    forbidden_authority: string[];
+    agentOs: { executionClass: string; canonicalStateWrite: boolean };
+  };
+
+  assert.equal(proposal.schema_version, "deepseek-harness.dispatch-proposal.v1");
+  assert.equal(proposal.agentOs.executionClass, "sandbox_prepare");
+  assert.equal(proposal.agentOs.canonicalStateWrite, false);
+  assert.equal(proposal.forbidden_authority.includes("self_approval"), true);
 });

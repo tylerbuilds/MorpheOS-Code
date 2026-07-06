@@ -43,6 +43,7 @@ node dist/src/cli.js status <run_id>
 node dist/src/cli.js results <run_id>
 node dist/src/cli.js export-review-packet <run_id>
 node dist/src/cli.js state --output artifacts/deepseek-harness-state.json
+node dist/src/cli.js dispatch-proposal examples/basic-run.json
 ```
 
 The default example uses the fake transport and performs no network calls.
@@ -63,3 +64,4 @@ Tools:
 - `deepseek_harness_cancel`
 - `deepseek_harness_export_review_packet`
 - `deepseek_harness_state`
+- `deepseek_harness_dispatch_proposal`

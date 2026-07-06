@@ -4,6 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import {
   cancelRun,
+  dispatchProposal,
   doctor,
   exportHarnessState,
   exportReviewPacket,
@@ -151,6 +152,19 @@ server.registerTool(
   },
   async ({ output, limit }) =>
     wrap(() => (output ? exportHarnessState({}, { output, limit }) : harnessState({}, { limit })))
+);
+
+server.registerTool(
+  "deepseek_harness_dispatch_proposal",
+  {
+    title: "DeepSeek Harness Dispatch Proposal",
+    description: "Return a Zeus Dispatch-compatible proposal packet without submitting or executing it.",
+    inputSchema: {
+      manifest: z.record(z.unknown()),
+      allow_live: z.boolean().optional()
+    }
+  },
+  async ({ manifest, allow_live }) => wrap(() => dispatchProposal(manifest, { allowLive: Boolean(allow_live) }))
 );
 
 const transport = new StdioServerTransport();

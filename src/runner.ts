@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { HarnessError } from "./errors.js";
 import { defaultArtifactRoot, defaultStateDir } from "./paths.js";
 import { HarnessStore, type ItemRecord } from "./store.js";
@@ -252,6 +252,50 @@ export function exportHarnessState(
   fs.mkdirSync(path.dirname(output), { recursive: true });
   fs.writeFileSync(output, JSON.stringify(state, null, 2));
   return { ok: true, path: output, state };
+}
+
+export function dispatchProposal(input: unknown, options: { allowLive?: boolean } = {}): Record<string, unknown> {
+  const manifest = parseManifest(input);
+  const plan = buildExecutionPlan(manifest, {
+    mode: "plan",
+    allowLive: options.allowLive,
+    apiKeyPresent: Boolean(process.env.DEEPSEEK_API_KEY)
+  });
+  const payloadHash = createHash("sha256").update(JSON.stringify(manifest)).digest("hex");
+  const approvalRequired = manifest.transport === "deepseek" || !plan.ok;
+
+  return {
+    schema_version: "deepseek-harness.dispatch-proposal.v1",
+    source: "deepseek-harness",
+    selected_action: "prepare_deepseek_batch",
+    selected_worker: "deepseek-harness",
+    payload_hash: payloadHash,
+    approval_required: approvalRequired,
+    receipt_required: approvalRequired,
+    forbidden_authority: [
+      "canonical_state_write",
+      "command_centre_state_write",
+      "local_workspace_apply",
+      "github_write",
+      "deploy",
+      "publish",
+      "external_side_effects",
+      "self_approval"
+    ],
+    agentOs: {
+      taskId: manifest.run_id ?? null,
+      scopeProfile: "draft_and_prepare",
+      executionClass: "sandbox_prepare",
+      canonicalStateWrite: false,
+      commandCentreStateWrite: false,
+      requiresMitlReceipt: false
+    },
+    evidence_target: {
+      artifact_dir: manifest.artifact_dir ?? null,
+      review_packet: manifest.run_id ? `${manifest.run_id}/review-packet.json` : null
+    },
+    plan
+  };
 }
 
 async function processItem(

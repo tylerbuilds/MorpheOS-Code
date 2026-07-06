@@ -7,8 +7,15 @@ not as an approval authority.
 
 - Dispatch route preview can point to a harness manifest path.
 - Harness returns `run_id`, state snapshot path and review packet path.
+- Harness can emit a `deepseek-harness.dispatch-proposal.v1` packet.
 - Dispatch records the evidence target and forbidden authority list.
 - Agent OS or MITL still owns approval and canonical apply.
+
+Generate a proposal:
+
+```bash
+node dist/src/cli.js dispatch-proposal examples/basic-run.json
+```
 
 ## Future Worker Capability
 

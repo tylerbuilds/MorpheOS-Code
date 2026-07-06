@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import {
   cancelRun,
+  dispatchProposal,
   doctor,
   exportHarnessState,
   exportReviewPacket,
@@ -57,6 +58,9 @@ async function main(): Promise<void> {
       result = args.flags.output
         ? exportHarnessState({}, { output: String(args.flags.output), limit: optionalNumber(args.flags.limit) })
         : harnessState({}, { limit: optionalNumber(args.flags.limit) });
+      break;
+    case "dispatch-proposal":
+      result = dispatchProposal(readJson(requiredArg(args, 0, "manifest path")), { allowLive });
       break;
     default:
       throw new Error(`Unknown command: ${args.command || "(missing)"}`);
