@@ -1,0 +1,31 @@
+{
+  "schema_version": "deepseek-harness.run.v1",
+  "project": "deepseek-harness-workload-benchmark-example",
+  "description": "Safe fake benchmark manifest for local harness proof.",
+  "egress_class": "non_sensitive_bulk",
+  "transport": "fake",
+  "model": "deepseek-v4-flash",
+  "thinking": {
+    "type": "enabled"
+  },
+  "response_format": "json_object",
+  "concurrency": 4,
+  "cost_cap_usd": 0.1,
+  "canonical_writes": false,
+  "external_side_effects": false,
+  "workload_profile": "classification",
+  "items": [
+    {
+      "id": "classification-001",
+      "prompt": "Classify this support request as billing, technical, content, or other: The report export button is disabled."
+    },
+    {
+      "id": "classification-002",
+      "prompt": "Classify this repo task as bug, feature, docs, or test: Add failure injection to the batch runner."
+    },
+    {
+      "id": "classification-003",
+      "prompt": "Classify this content brief as educate, compare, explain, or persuade: A patient guide to safe clinic questions."
+    }
+  ]
+}

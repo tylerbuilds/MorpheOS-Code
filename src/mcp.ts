@@ -3,20 +3,26 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import {
+  agentCanary,
   cancelRun,
   approvalPacket,
   dispatchProposal,
   doctor,
+  exportCostLedger,
   exportApprovalPacket,
   exportHarnessState,
   exportReviewPacket,
+  failureCanary,
   getResults,
   getStatus,
   harnessState,
+  modelComparisonPlan,
   planManifest,
+  privacyCheck,
   processRun,
   scaleRamp,
-  submitManifest
+  submitManifest,
+  workloadBenchmark
 } from "./runner.js";
 import { toErrorPayload } from "./errors.js";
 
@@ -158,6 +164,31 @@ server.registerTool(
 );
 
 server.registerTool(
+  "deepseek_harness_privacy_check",
+  {
+    title: "DeepSeek Harness Privacy Check",
+    description: "Classify manifest egress risk without returning matched sensitive text.",
+    inputSchema: {
+      manifest: z.record(z.unknown())
+    }
+  },
+  async ({ manifest }) => wrap(() => privacyCheck(manifest))
+);
+
+server.registerTool(
+  "deepseek_harness_cost_ledger",
+  {
+    title: "DeepSeek Harness Cost Ledger",
+    description: "Export token and cost ledger for an existing run.",
+    inputSchema: {
+      run_id: z.string().min(1),
+      output: z.string().optional()
+    }
+  },
+  async ({ run_id, output }) => wrap(() => exportCostLedger(run_id, {}, { output }))
+);
+
+server.registerTool(
   "deepseek_harness_dispatch_proposal",
   {
     title: "DeepSeek Harness Dispatch Proposal",
@@ -181,6 +212,63 @@ server.registerTool(
     }
   },
   async ({ manifest, output }) => wrap(() => (output ? exportApprovalPacket(manifest, {}, { output }) : approvalPacket(manifest)))
+);
+
+server.registerTool(
+  "deepseek_harness_agent_canary",
+  {
+    title: "DeepSeek Harness Agent Canary",
+    description: "Run a local fake canary proving CLI/MCP agent usability and artefact generation.",
+    inputSchema: {
+      output: z.string().optional()
+    }
+  },
+  async ({ output }) => wrap(() => agentCanary({}, { output }))
+);
+
+server.registerTool(
+  "deepseek_harness_workload_benchmark",
+  {
+    title: "DeepSeek Harness Workload Benchmark",
+    description: "Run a local fake or dry-run benchmark workload pack.",
+    inputSchema: {
+      workload: z.string().optional(),
+      items: z.number().int().positive().optional(),
+      concurrency: z.number().int().positive().optional(),
+      transport: z.enum(["fake", "dry-run"]).optional(),
+      model: z.enum(["deepseek-v4-flash", "deepseek-v4-pro"]).optional(),
+      output: z.string().optional()
+    }
+  },
+  async ({ workload, items, concurrency, transport, model, output }) =>
+    wrap(() => workloadBenchmark({}, { workload, items, concurrency, transport, model, output }))
+);
+
+server.registerTool(
+  "deepseek_harness_failure_canary",
+  {
+    title: "DeepSeek Harness Failure Canary",
+    description: "Run a local failure-injection canary and confirm partial failure reporting.",
+    inputSchema: {
+      output: z.string().optional()
+    }
+  },
+  async ({ output }) => wrap(() => failureCanary({}, { output }))
+);
+
+server.registerTool(
+  "deepseek_harness_compare_models",
+  {
+    title: "DeepSeek Harness Compare Models",
+    description: "Prepare fake or dry-run comparison manifests for DeepSeek V4 Flash and Pro.",
+    inputSchema: {
+      manifest: z.record(z.unknown()),
+      models: z.array(z.enum(["deepseek-v4-flash", "deepseek-v4-pro"])).optional(),
+      transport: z.enum(["fake", "dry-run"]).optional(),
+      output: z.string().optional()
+    }
+  },
+  async ({ manifest, models, transport, output }) => wrap(() => modelComparisonPlan(manifest, { models, transport, output }))
 );
 
 server.registerTool(

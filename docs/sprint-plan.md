@@ -17,6 +17,7 @@
 | DSH-10 | Borrowed-patterns design | Proposed PR | GitHub pattern survey and Rust split decision |
 | DSH-11 | Rust worker core | Proposed PR | fake-transport Rust worker runs existing manifest shape |
 | DSH-12 | Adaptive throughput | Proposed PR | retry/backoff and adaptive concurrency proof |
+| DSH-BATCH-1-8 | Agent utility pack | Done locally | local canary, benchmark, failure injection, cost ledger, privacy check, golden artefacts and model comparison tests |
 | DSH-17 | OCR and document ingest lane | Future / not now | screenshot/PDF OCR benchmark, DeepSeek-OCR/local adapter proposal, privacy gates |
 
 ## Non-Negotiables
@@ -67,6 +68,22 @@ Closeout requires:
 
 Push or PR handling depends on the configured git remote. The harness runtime
 itself still has no GitHub-write authority.
+
+## DSH-BATCH-1-8 Agent Utility Pack
+
+This batch turns the harness into something agents can repeatedly use and test:
+
+- agent usability canary;
+- workload benchmark pack;
+- local failure injection;
+- cost and usage ledger artefacts;
+- MCP macros for common harness loops;
+- golden artefact tests;
+- privacy classifier;
+- fake/dry-run model comparison planning.
+
+All proof for this batch is local. It does not run live DeepSeek, write GitHub,
+deploy, publish, send messages or touch Agent OS canonical state.
 
 ## DSH-10 Borrowed-Patterns Rule
 

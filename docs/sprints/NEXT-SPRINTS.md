@@ -1,5 +1,18 @@
 # Next Sprints
 
+## Recently Implemented Locally
+
+`DSH-BATCH-1-8` added the local agent utility pack:
+
+- agent usability canary;
+- workload benchmark pack;
+- failure injection;
+- cost and usage ledger;
+- MCP utility macros;
+- golden artefact tests;
+- privacy classifier;
+- fake/dry-run model comparison planning.
+
 ## DSH-12 Storage And Conformance Contract
 
 Skills: `rust-cli-with-sqlite`, `testing-conformance-harnesses`.

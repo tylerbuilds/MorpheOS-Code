@@ -65,8 +65,14 @@ try {
     "deepseek_harness_cancel",
     "deepseek_harness_export_review_packet",
     "deepseek_harness_state",
+    "deepseek_harness_privacy_check",
+    "deepseek_harness_cost_ledger",
     "deepseek_harness_dispatch_proposal",
     "deepseek_harness_approval_packet",
+    "deepseek_harness_agent_canary",
+    "deepseek_harness_workload_benchmark",
+    "deepseek_harness_failure_canary",
+    "deepseek_harness_compare_models",
     "deepseek_harness_scale_ramp"
   ];
   const missing = requiredTools.filter((tool) => !toolNames.includes(tool));

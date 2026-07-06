@@ -1,8 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
+import { buildCostLedger } from "./cost.js";
 import { HarnessError } from "./errors.js";
 import { defaultArtifactRoot, defaultStateDir } from "./paths.js";
+import { classifyManifestPrivacy } from "./privacy.js";
 import { HarnessStore, type ItemRecord } from "./store.js";
 import {
   assertPlanExecutable,
@@ -10,6 +12,7 @@ import {
   isPlaceholderApprovalId,
   parseManifest,
   type ExecutionPlan,
+  type RunItem,
   type RunManifest
 } from "./schema.js";
 import {
@@ -18,6 +21,13 @@ import {
   FakeTransport,
   type CompletionTransport
 } from "./transport.js";
+import {
+  buildAgentCanaryManifest,
+  buildFailureCanaryManifest,
+  buildWorkloadBenchmarkManifest,
+  listWorkloads,
+  type LocalTransport
+} from "./workloads.js";
 
 export interface HarnessContext {
   stateDir?: string;
@@ -43,6 +53,23 @@ export interface ScaleRampOptions {
   output?: string;
   allowLive?: boolean;
   allowLiveScale?: boolean;
+}
+
+export interface MacroOptions {
+  output?: string;
+}
+
+export interface WorkloadBenchmarkOptions extends MacroOptions {
+  workload?: string;
+  items?: number;
+  concurrency?: number;
+  transport?: LocalTransport;
+  model?: RunManifest["model"];
+}
+
+export interface CompareModelsOptions extends MacroOptions {
+  models?: RunManifest["model"][];
+  transport?: LocalTransport;
 }
 
 export interface McpConfigOptions {
@@ -258,6 +285,7 @@ export function exportReviewPacket(runId: string, context: HarnessContext = {}):
   try {
     const run = store.getRun(runId);
     const items = store.listItems(runId);
+    const costLedger = buildCostLedger(run, items);
     const packet = {
       schema_version: "deepseek-harness.review-packet.v1",
       run: store.summary(runId),
@@ -269,6 +297,8 @@ export function exportReviewPacket(runId: string, context: HarnessContext = {}):
         egress_class: run.manifest.egress_class,
         cost_cap_usd: run.manifest.cost_cap_usd
       },
+      privacy: classifyManifestPrivacy(run.manifest),
+      cost_ledger: costLedger,
       items
     };
     const packetPath = path.join(run.artifact_dir, "review-packet.json");
@@ -458,6 +488,179 @@ export function exportApprovalPacket(
   return { ok: true, path: output, packet };
 }
 
+export function privacyCheck(input: unknown): Record<string, unknown> {
+  const manifest = parseManifest(input);
+  const plan = buildExecutionPlan(manifest, {
+    mode: "plan",
+    allowLive: false,
+    apiKeyPresent: Boolean(process.env.DEEPSEEK_API_KEY)
+  });
+  return {
+    ok: plan.privacy.external_deepseek_allowed,
+    project: manifest.project,
+    manifest_egress_class: manifest.egress_class,
+    privacy: plan.privacy,
+    blockers: plan.blockers,
+    warnings: plan.warnings
+  };
+}
+
+export function exportCostLedger(
+  runId: string,
+  context: HarnessContext = {},
+  options: { output?: string } = {}
+): Record<string, unknown> {
+  const store = createStore(context);
+  try {
+    const run = store.getRun(runId);
+    const ledger = buildCostLedger(run, store.listItems(runId));
+    const output = path.resolve(options.output ?? path.join(run.artifact_dir, "cost-ledger.json"));
+    if (isCommandCentreStatePath(output)) {
+      throw new HarnessError(
+        "command_centre_state_write_blocked",
+        "Harness must not write Command Centre/_state directly; route this through Agent OS"
+      );
+    }
+
+    fs.mkdirSync(path.dirname(output), { recursive: true });
+    fs.writeFileSync(output, JSON.stringify(ledger, null, 2));
+    return { ok: true, path: output, ledger };
+  } finally {
+    store.close();
+  }
+}
+
+export async function agentCanary(
+  context: HarnessContext = {},
+  options: MacroOptions = {}
+): Promise<Record<string, unknown>> {
+  const started = performance.now();
+  const manifest = buildAgentCanaryManifest();
+  const result = await submitManifest(manifest, context, { start: true });
+  const review = exportReviewPacket(result.run_id, context) as { path: string };
+  const ledger = exportCostLedger(result.run_id, context) as { path: string };
+  const elapsedMs = Math.round(performance.now() - started);
+  const report = {
+    schema_version: "deepseek-harness.agent-canary.v1",
+    status: result.status === "completed" ? "ok" : "failed",
+    elapsed_ms: elapsedMs,
+    run_id: result.run_id,
+    summary: result.summary,
+    artefacts: {
+      review_packet: review.path,
+      cost_ledger: ledger.path
+    },
+    authority: localMacroAuthority()
+  };
+
+  const output = options.output ? writeMacroReport(options.output, report) : null;
+  return { ok: report.status === "ok", path: output, report };
+}
+
+export async function workloadBenchmark(
+  context: HarnessContext = {},
+  options: WorkloadBenchmarkOptions = {}
+): Promise<Record<string, unknown>> {
+  const manifest = buildWorkloadBenchmarkManifest({
+    workload: options.workload,
+    items: options.items,
+    concurrency: options.concurrency,
+    transport: options.transport,
+    model: options.model
+  });
+  const started = performance.now();
+  const result = await submitManifest(manifest, context, { start: true });
+  const elapsedMs = Math.round(performance.now() - started);
+  const review = exportReviewPacket(result.run_id, context) as { path: string };
+  const ledger = exportCostLedger(result.run_id, context) as { path: string };
+  const itemCount = Number(result.summary.item_count ?? manifest.items.length);
+  const report = {
+    schema_version: "deepseek-harness.workload-benchmark.v1",
+    status: result.status === "completed" ? "ok" : "failed",
+    workload: manifest.workload_profile,
+    elapsed_ms: elapsedMs,
+    items_per_second: elapsedMs > 0 ? Number((itemCount / (elapsedMs / 1000)).toFixed(2)) : null,
+    run_id: result.run_id,
+    summary: result.summary,
+    artefacts: {
+      review_packet: review.path,
+      cost_ledger: ledger.path
+    },
+    available_workloads: listWorkloads(),
+    authority: localMacroAuthority()
+  };
+
+  const output = options.output ? writeMacroReport(options.output, report) : null;
+  return { ok: report.status === "ok", path: output, report };
+}
+
+export async function failureCanary(
+  context: HarnessContext = {},
+  options: MacroOptions = {}
+): Promise<Record<string, unknown>> {
+  const manifest = buildFailureCanaryManifest();
+  const result = await submitManifest(manifest, context, { start: true });
+  const review = exportReviewPacket(result.run_id, context) as { path: string };
+  const ledger = exportCostLedger(result.run_id, context) as { path: string };
+  const counts = result.summary.counts as Record<string, number> | undefined;
+  const expectedFailureObserved = result.status === "failed" && counts?.failed === 1 && counts.completed === 3;
+  const report = {
+    schema_version: "deepseek-harness.failure-canary.v1",
+    status: expectedFailureObserved ? "ok" : "failed",
+    expected_run_status: "failed",
+    run_id: result.run_id,
+    summary: result.summary,
+    artefacts: {
+      review_packet: review.path,
+      cost_ledger: ledger.path
+    },
+    authority: localMacroAuthority()
+  };
+
+  const output = options.output ? writeMacroReport(options.output, report) : null;
+  return { ok: expectedFailureObserved, path: output, report };
+}
+
+export function modelComparisonPlan(
+  input: unknown,
+  options: CompareModelsOptions = {}
+): Record<string, unknown> {
+  const manifest = parseManifest(input);
+  const models = options.models ?? ["deepseek-v4-flash", "deepseek-v4-pro"];
+  const transport = options.transport ?? "dry-run";
+  const candidates = models.map((model) => {
+    const candidate: RunManifest = {
+      ...manifest,
+      run_id: undefined,
+      project: `${manifest.project}-${model}`,
+      transport,
+      model,
+      approval_id: undefined
+    };
+    const plan = buildExecutionPlan(candidate, {
+      mode: "plan",
+      allowLive: false,
+      apiKeyPresent: Boolean(process.env.DEEPSEEK_API_KEY)
+    });
+    return { model, manifest: candidate, plan };
+  });
+  const report = {
+    schema_version: "deepseek-harness.model-comparison-plan.v1",
+    source_project: manifest.project,
+    live_execution: false,
+    transport,
+    candidates,
+    recommendation: {
+      default_model: "deepseek-v4-flash",
+      route: "Use fake or dry-run comparison first; promote a single non-sensitive winner to live only with an approval packet."
+    },
+    authority: localMacroAuthority()
+  };
+
+  const output = options.output ? writeMacroReport(options.output, report) : null;
+  return { ok: candidates.every((candidate) => candidate.plan.ok), path: output, report };
+}
+
 export async function scaleRamp(
   input: unknown,
   context: HarnessContext = {},
@@ -558,7 +761,12 @@ async function processItem(
 ): Promise<void> {
   store.markItemRunning(item.run_id, item.item_id);
   try {
-    const result = await transport.complete(manifest, item.input as RunManifest["items"][number]);
+    const inputItem = item.input as RunItem;
+    const injectedFailure = injectedFailureMessage(manifest, inputItem);
+    if (injectedFailure) {
+      throw new Error(injectedFailure);
+    }
+    const result = await transport.complete(manifest, inputItem);
     store.completeItem(item.run_id, item.item_id, { content: result.content, raw: result.raw }, result.usage);
   } catch (error) {
     store.failItem(item.run_id, item.item_id, error instanceof Error ? error.message : String(error));
@@ -597,12 +805,60 @@ async function mapLimit<T>(items: T[], limit: number, worker: (item: T) => Promi
 function writeResultArtifacts(store: HarnessStore, runId: string): void {
   const run = store.getRun(runId);
   const items = store.listItems(runId);
+  const costLedger = buildCostLedger(run, items);
   fs.mkdirSync(run.artifact_dir, { recursive: true });
   fs.writeFileSync(path.join(run.artifact_dir, "summary.json"), JSON.stringify(store.summary(runId), null, 2));
+  fs.writeFileSync(path.join(run.artifact_dir, "cost-ledger.json"), JSON.stringify(costLedger, null, 2));
   fs.writeFileSync(
     path.join(run.artifact_dir, "results.jsonl"),
     items.map((item) => JSON.stringify(item)).join("\n") + "\n"
   );
+}
+
+function injectedFailureMessage(manifest: RunManifest, item: RunItem): string | null {
+  const injection = manifest.failure_injection;
+  if (!injection) {
+    return null;
+  }
+  const message = injection.error_message ?? "Injected local failure";
+  if (injection.fail_item_ids?.includes(item.id)) {
+    return message;
+  }
+  if (!injection.fail_every_n) {
+    return null;
+  }
+  const suffix = item.id.match(/(\d+)$/)?.[1];
+  if (suffix && Number(suffix) % injection.fail_every_n === 0) {
+    return message;
+  }
+  return null;
+}
+
+function writeMacroReport(output: string, report: unknown): string {
+  const resolved = path.resolve(output);
+  if (isCommandCentreStatePath(resolved)) {
+    throw new HarnessError(
+      "command_centre_state_write_blocked",
+      "Harness must not write Command Centre/_state directly; route this through Agent OS"
+    );
+  }
+  fs.mkdirSync(path.dirname(resolved), { recursive: true });
+  fs.writeFileSync(resolved, JSON.stringify(report, null, 2));
+  return resolved;
+}
+
+function localMacroAuthority(): Record<string, boolean | string> {
+  return {
+    canonical_state_write: false,
+    command_centre_state_write: false,
+    local_workspace_apply: false,
+    github_write: false,
+    deploy: false,
+    publish: false,
+    send: false,
+    external_api_calls: false,
+    transport: "fake_or_dry_run_only"
+  };
 }
 
 function isCommandCentreStatePath(filePath: string): boolean {

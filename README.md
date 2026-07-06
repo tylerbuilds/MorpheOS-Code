@@ -13,7 +13,9 @@ Core sprint status: `DSH-00` to `DSH-09` complete locally.
 - refuses live DeepSeek calls unless approval, egress, cost and side-effect gates pass;
 - exposes a CLI and MCP stdio server over the same service layer;
 - exports Agent OS readable state snapshots, Dispatch proposals and review packets;
-- includes a gated scale-ramp command for measured concurrency tests.
+- includes a gated scale-ramp command for measured concurrency tests;
+- includes local agent canary, workload benchmark, privacy check, cost ledger,
+  failure canary and model-comparison planning tools.
 
 The live proof on 2026-07-06 completed a non-sensitive DeepSeek V4 Flash
 scale ramp at 5, 10 and 20 concurrency. All three 40-item runs completed;
@@ -54,9 +56,15 @@ node dist/src/cli.js submit examples/basic-run.json --start
 node dist/src/cli.js status <run_id>
 node dist/src/cli.js results <run_id>
 node dist/src/cli.js export-review-packet <run_id>
+node dist/src/cli.js cost-ledger <run_id>
 node dist/src/cli.js state --output artifacts/deepseek-harness-state.json
+node dist/src/cli.js privacy-check examples/live-deepseek-blocked.json
 node dist/src/cli.js dispatch-proposal examples/basic-run.json
 node dist/src/cli.js approval-packet examples/live-micro-smoke-template.json --output artifacts/live-smoke-approval-packet.json
+node dist/src/cli.js agent-canary --output artifacts/agent-canary.json
+node dist/src/cli.js workload-benchmark --workload extraction --items 12 --concurrency 4 --output artifacts/workload-benchmark.json
+node dist/src/cli.js failure-canary --output artifacts/failure-canary.json
+node dist/src/cli.js compare-models examples/model-comparison-base.json --output artifacts/model-comparison-plan.json
 node dist/src/cli.js scale-ramp examples/basic-run.json --concurrency 5,10,20 --items 40 --output artifacts/scale-ramp-local.json
 cargo run -p deepseek-harness-worker -- --manifest examples/basic-run.json --transport fake --concurrency 4 --output artifacts/rust-worker-basic-run.json
 ```
@@ -94,6 +102,12 @@ Tools:
 - `deepseek_harness_cancel`
 - `deepseek_harness_export_review_packet`
 - `deepseek_harness_state`
+- `deepseek_harness_privacy_check`
+- `deepseek_harness_cost_ledger`
 - `deepseek_harness_dispatch_proposal`
 - `deepseek_harness_approval_packet`
+- `deepseek_harness_agent_canary`
+- `deepseek_harness_workload_benchmark`
+- `deepseek_harness_failure_canary`
+- `deepseek_harness_compare_models`
 - `deepseek_harness_scale_ramp`

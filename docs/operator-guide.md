@@ -21,6 +21,9 @@ npm run typecheck
 npm test
 node dist/src/cli.js doctor
 node dist/src/cli.js plan examples/basic-run.json
+node dist/src/cli.js agent-canary --output artifacts/agent-canary.json
+node dist/src/cli.js workload-benchmark --workload classification --items 12 --concurrency 4 --output artifacts/workload-benchmark.json
+node dist/src/cli.js failure-canary --output artifacts/failure-canary.json
 node dist/src/cli.js scale-ramp examples/basic-run.json --concurrency 5,10,20 --items 40 --output artifacts/scale-ramp-local.json
 cargo run -p deepseek-harness-worker -- --manifest examples/basic-run.json --transport fake --concurrency 4 --output artifacts/rust-worker-basic-run.json
 bash scripts/install-local.sh --install-dir "$HOME/bin" --print-config
@@ -42,6 +45,23 @@ cargo run -p deepseek-harness-worker -- --manifest examples/basic-run.json --tra
 The worker report schema is `deepseek-harness.worker-report.v1`. It does not
 call DeepSeek, write SQLite, write Agent OS state, apply repo changes, deploy or
 send messages.
+
+## Agent Utility Loop
+
+Use these commands when testing whether agents can use the harness end to end
+without live spend:
+
+```bash
+node dist/src/cli.js privacy-check examples/live-deepseek-blocked.json
+node dist/src/cli.js agent-canary --output artifacts/agent-canary.json
+node dist/src/cli.js workload-benchmark --workload extraction --items 12 --concurrency 4 --output artifacts/workload-benchmark.json
+node dist/src/cli.js failure-canary --output artifacts/failure-canary.json
+node dist/src/cli.js compare-models examples/model-comparison-base.json --output artifacts/model-comparison-plan.json
+```
+
+These commands use fake or dry-run transports only. They write local artefacts
+under `artifacts/`: review packets, result JSONL, summaries, benchmark reports
+and `cost-ledger.json`.
 
 ## Live Micro-Smoke
 
@@ -75,6 +95,7 @@ no failed items.
 
 ```bash
 node dist/src/cli.js export-review-packet <run_id>
+node dist/src/cli.js cost-ledger <run_id>
 node dist/src/cli.js state --output artifacts/deepseek-harness-state.json --limit 12
 node dist/src/cli.js dispatch-proposal <manifest.json>
 ```

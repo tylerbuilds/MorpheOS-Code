@@ -1,0 +1,26 @@
+{
+  "schema_version": "deepseek-harness.run.v1",
+  "project": "deepseek-harness-model-comparison-example",
+  "description": "Safe base manifest for fake or dry-run model comparison planning.",
+  "egress_class": "non_sensitive_bulk",
+  "transport": "fake",
+  "model": "deepseek-v4-flash",
+  "thinking": {
+    "type": "enabled"
+  },
+  "response_format": "json_object",
+  "concurrency": 2,
+  "cost_cap_usd": 0.05,
+  "canonical_writes": false,
+  "external_side_effects": false,
+  "items": [
+    {
+      "id": "compare-001",
+      "prompt": "Return JSON with strengths, risks and recommendation for a local batch harness."
+    },
+    {
+      "id": "compare-002",
+      "prompt": "Return JSON critiquing a short agent proof report for missing evidence."
+    }
+  ]
+}

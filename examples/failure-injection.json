@@ -1,0 +1,35 @@
+{
+  "schema_version": "deepseek-harness.run.v1",
+  "project": "deepseek-harness-failure-injection-example",
+  "description": "Local failure-injection example. This must use fake or dry-run transport.",
+  "egress_class": "non_sensitive_bulk",
+  "transport": "fake",
+  "model": "deepseek-v4-flash",
+  "thinking": {
+    "type": "disabled"
+  },
+  "response_format": "json_object",
+  "concurrency": 2,
+  "cost_cap_usd": 0.05,
+  "canonical_writes": false,
+  "external_side_effects": false,
+  "workload_profile": "failure_injection_example",
+  "failure_injection": {
+    "fail_item_ids": ["failure-002"],
+    "error_message": "Injected local example failure"
+  },
+  "items": [
+    {
+      "id": "failure-001",
+      "prompt": "Return JSON acknowledging item one."
+    },
+    {
+      "id": "failure-002",
+      "prompt": "Return JSON acknowledging item two."
+    },
+    {
+      "id": "failure-003",
+      "prompt": "Return JSON acknowledging item three."
+    }
+  ]
+}

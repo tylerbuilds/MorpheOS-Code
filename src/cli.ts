@@ -1,22 +1,28 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import {
+  agentCanary,
   cancelRun,
   approvalPacket,
   dispatchProposal,
   doctor,
+  exportCostLedger,
   exportApprovalPacket,
   exportHarnessState,
   exportReviewPacket,
+  failureCanary,
   getResults,
   getStatus,
   harnessState,
   mcpConfig,
   mcpConfigToml,
+  modelComparisonPlan,
   planManifest,
+  privacyCheck,
   processRun,
   scaleRamp,
-  submitManifest
+  submitManifest,
+  workloadBenchmark
 } from "./runner.js";
 import { toErrorPayload } from "./errors.js";
 
@@ -82,6 +88,12 @@ async function main(): Promise<void> {
         ? exportHarnessState({}, { output: String(args.flags.output), limit: optionalNumber(args.flags.limit) })
         : harnessState({}, { limit: optionalNumber(args.flags.limit) });
       break;
+    case "privacy-check":
+      result = privacyCheck(readJson(requiredArg(args, 0, "manifest path")));
+      break;
+    case "cost-ledger":
+      result = exportCostLedger(requiredArg(args, 0, "run_id"), {}, { output: optionalString(args.flags.output) });
+      break;
     case "dispatch-proposal":
       result = dispatchProposal(readJson(requiredArg(args, 0, "manifest path")), { allowLive });
       break;
@@ -97,6 +109,29 @@ async function main(): Promise<void> {
         output: optionalString(args.flags.output),
         allowLive,
         allowLiveScale: Boolean(args.flags["allow-live-scale"])
+      });
+      break;
+    case "agent-canary":
+      result = await agentCanary({}, { output: optionalString(args.flags.output) });
+      break;
+    case "workload-benchmark":
+      result = await workloadBenchmark({}, {
+        workload: optionalString(args.flags.workload),
+        items: optionalNumber(args.flags.items),
+        concurrency: optionalNumber(args.flags.concurrency),
+        transport: optionalLocalTransport(args.flags.transport),
+        model: optionalModel(args.flags.model),
+        output: optionalString(args.flags.output)
+      });
+      break;
+    case "failure-canary":
+      result = await failureCanary({}, { output: optionalString(args.flags.output) });
+      break;
+    case "compare-models":
+      result = modelComparisonPlan(readJson(requiredArg(args, 0, "manifest path")), {
+        models: optionalModelList(args.flags.models),
+        transport: optionalLocalTransport(args.flags.transport),
+        output: optionalString(args.flags.output)
       });
       break;
     default:
@@ -174,6 +209,39 @@ function optionalNumberList(value: string | boolean | undefined): number[] | und
     throw new Error(`Expected comma-separated positive integers, got ${value}`);
   }
   return parts;
+}
+
+function optionalLocalTransport(value: string | boolean | undefined): "fake" | "dry-run" | undefined {
+  if (value === undefined || typeof value === "boolean") {
+    return undefined;
+  }
+  if (value === "fake" || value === "dry-run") {
+    return value;
+  }
+  throw new Error(`Expected fake or dry-run transport, got ${value}`);
+}
+
+function optionalModel(value: string | boolean | undefined): "deepseek-v4-flash" | "deepseek-v4-pro" | undefined {
+  if (value === undefined || typeof value === "boolean") {
+    return undefined;
+  }
+  if (value === "deepseek-v4-flash" || value === "deepseek-v4-pro") {
+    return value;
+  }
+  throw new Error(`Expected DeepSeek V4 model, got ${value}`);
+}
+
+function optionalModelList(value: string | boolean | undefined): Array<"deepseek-v4-flash" | "deepseek-v4-pro"> | undefined {
+  if (value === undefined || typeof value === "boolean") {
+    return undefined;
+  }
+  return value.split(",").map((part) => {
+    const model = optionalModel(part.trim());
+    if (!model) {
+      throw new Error(`Expected DeepSeek V4 model, got ${part}`);
+    }
+    return model;
+  });
 }
 
 main().catch((error) => {
