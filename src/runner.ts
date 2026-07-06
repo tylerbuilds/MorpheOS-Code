@@ -37,6 +37,14 @@ export interface SubmitResult {
   summary: Record<string, unknown>;
 }
 
+export interface ScaleRampOptions {
+  concurrencies?: number[];
+  itemCount?: number;
+  output?: string;
+  allowLive?: boolean;
+  allowLiveScale?: boolean;
+}
+
 export function createStore(context: HarnessContext = {}): HarnessStore {
   return new HarnessStore(context.stateDir ?? defaultStateDir());
 }
@@ -388,6 +396,98 @@ export function exportApprovalPacket(
   return { ok: true, path: output, packet };
 }
 
+export async function scaleRamp(
+  input: unknown,
+  context: HarnessContext = {},
+  options: ScaleRampOptions = {}
+): Promise<Record<string, unknown>> {
+  const manifest = parseManifest(input);
+  const concurrencies = options.concurrencies ?? [5, 10, 20];
+  const itemCount = options.itemCount ?? Math.max(manifest.items.length, 40);
+  const startedAt = new Date().toISOString();
+
+  if (manifest.transport === "deepseek" && !options.allowLiveScale) {
+    throw new HarnessError(
+      "live_scale_requires_allow_live_scale",
+      "Live DeepSeek scale ramp requires the separate allow-live-scale gate after DSH-07 live smoke approval"
+    );
+  }
+
+  const output = path.resolve(
+    options.output ?? path.join(context.artifactRoot ?? defaultArtifactRoot(), `scale-ramp-${Date.now()}.json`)
+  );
+  if (isCommandCentreStatePath(output)) {
+    throw new HarnessError(
+      "command_centre_state_write_blocked",
+      "Harness must not write Command Centre/_state directly; route this through Agent OS"
+    );
+  }
+
+  const runs = [];
+  for (const concurrency of concurrencies) {
+    const rampManifest: RunManifest = {
+      ...manifest,
+      run_id: undefined,
+      project: `${manifest.project}-ramp-c${concurrency}`,
+      concurrency,
+      items: expandItems(manifest.items, itemCount)
+    };
+    const started = performance.now();
+    const result = await submitManifest(rampManifest, context, {
+      start: true,
+      allowLive: Boolean(options.allowLive && options.allowLiveScale)
+    });
+    const elapsedMs = Math.round(performance.now() - started);
+    runs.push({
+      concurrency,
+      run_id: result.run_id,
+      status: result.status,
+      item_count: itemCount,
+      elapsed_ms: elapsedMs,
+      items_per_second: elapsedMs > 0 ? Number((itemCount / (elapsedMs / 1000)).toFixed(2)) : null,
+      summary: result.summary
+    });
+  }
+
+  const completedRuns = runs.filter((run) => run.status === "completed").length;
+  const fastest = [...runs]
+    .filter((run) => typeof run.items_per_second === "number")
+    .sort((a, b) => Number(b.items_per_second) - Number(a.items_per_second))[0] ?? null;
+  const report = {
+    schema_version: "deepseek-harness.scale-ramp.v1",
+    generated_at: new Date().toISOString(),
+    started_at: startedAt,
+    completed_at: new Date().toISOString(),
+    authority: {
+      canonical_state_write: false,
+      command_centre_state_write: false,
+      local_workspace_apply: false,
+      external_side_effects: false,
+      live_scale_requires_allow_live_scale: true
+    },
+    input: {
+      source_project: manifest.project,
+      transport: manifest.transport,
+      model: manifest.model,
+      requested_concurrencies: concurrencies,
+      item_count: itemCount,
+      allow_live: Boolean(options.allowLive),
+      allow_live_scale: Boolean(options.allowLiveScale)
+    },
+    result: {
+      status: completedRuns === runs.length ? "ok" : "partial",
+      completed_runs: completedRuns,
+      total_runs: runs.length,
+      recommended_next_concurrency: fastest?.concurrency ?? null
+    },
+    runs
+  };
+
+  fs.mkdirSync(path.dirname(output), { recursive: true });
+  fs.writeFileSync(output, JSON.stringify(report, null, 2));
+  return { ok: true, path: output, report };
+}
+
 async function processItem(
   store: HarnessStore,
   transport: CompletionTransport,
@@ -446,4 +546,15 @@ function writeResultArtifacts(store: HarnessStore, runId: string): void {
 function isCommandCentreStatePath(filePath: string): boolean {
   const normalised = filePath.split(path.sep).join("/");
   return normalised.includes("/Documents/Obsidian/Command Centre/_state/");
+}
+
+function expandItems(items: RunManifest["items"], itemCount: number): RunManifest["items"] {
+  return Array.from({ length: itemCount }, (_, index) => {
+    const source = items[index % items.length];
+    const round = Math.floor(index / items.length) + 1;
+    return {
+      ...source,
+      id: `${source.id}-r${round}-i${index + 1}`
+    };
+  });
 }

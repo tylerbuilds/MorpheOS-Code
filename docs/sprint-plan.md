@@ -34,3 +34,14 @@ node dist/src/cli.js approval-packet examples/live-micro-smoke-template.json --o
 The template is deliberately non-executable because `approval_id` is a
 placeholder. Replace it only after Tyler approves the exact manifest, then run
 with `--allow-live` in a shell that has `DEEPSEEK_API_KEY`.
+
+## DSH-08 Scale Ramp
+
+Run the local ramp first:
+
+```bash
+node dist/src/cli.js scale-ramp examples/basic-run.json --concurrency 5,10,20 --items 40 --output artifacts/scale-ramp-local.json
+```
+
+Live DeepSeek scale is separately gated with `--allow-live-scale` and should not
+be used until the DSH-07 live micro-smoke has passed.

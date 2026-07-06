@@ -15,6 +15,7 @@ import {
   harnessState,
   planManifest,
   processRun,
+  scaleRamp,
   submitManifest
 } from "./runner.js";
 import { toErrorPayload } from "./errors.js";
@@ -180,6 +181,32 @@ server.registerTool(
     }
   },
   async ({ manifest, output }) => wrap(() => (output ? exportApprovalPacket(manifest, {}, { output }) : approvalPacket(manifest)))
+);
+
+server.registerTool(
+  "deepseek_harness_scale_ramp",
+  {
+    title: "DeepSeek Harness Scale Ramp",
+    description: "Run a bounded local scale ramp. Live DeepSeek scale requires allow_live and allow_live_scale.",
+    inputSchema: {
+      manifest: z.record(z.unknown()),
+      concurrencies: z.array(z.number().int().positive()).optional(),
+      items: z.number().int().positive().optional(),
+      output: z.string().optional(),
+      allow_live: z.boolean().optional(),
+      allow_live_scale: z.boolean().optional()
+    }
+  },
+  async ({ manifest, concurrencies, items, output, allow_live, allow_live_scale }) =>
+    wrap(() =>
+      scaleRamp(manifest, {}, {
+        concurrencies,
+        itemCount: items,
+        output,
+        allowLive: Boolean(allow_live),
+        allowLiveScale: Boolean(allow_live_scale)
+      })
+    )
 );
 
 const transport = new StdioServerTransport();

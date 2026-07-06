@@ -13,6 +13,7 @@ import {
   harnessState,
   planManifest,
   processRun,
+  scaleRamp,
   submitManifest
 } from "./runner.js";
 import { toErrorPayload } from "./errors.js";
@@ -68,6 +69,15 @@ async function main(): Promise<void> {
       result = args.flags.output
         ? exportApprovalPacket(readJson(requiredArg(args, 0, "manifest path")), {}, { output: String(args.flags.output) })
         : approvalPacket(readJson(requiredArg(args, 0, "manifest path")));
+      break;
+    case "scale-ramp":
+      result = await scaleRamp(readJson(requiredArg(args, 0, "manifest path")), {}, {
+        concurrencies: optionalNumberList(args.flags.concurrency),
+        itemCount: optionalNumber(args.flags.items),
+        output: optionalString(args.flags.output),
+        allowLive,
+        allowLiveScale: Boolean(args.flags["allow-live-scale"])
+      });
       break;
     default:
       throw new Error(`Unknown command: ${args.command || "(missing)"}`);
@@ -129,6 +139,21 @@ function optionalNumber(value: string | boolean | undefined): number | undefined
     throw new Error(`Expected number, got ${value}`);
   }
   return parsed;
+}
+
+function optionalString(value: string | boolean | undefined): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function optionalNumberList(value: string | boolean | undefined): number[] | undefined {
+  if (value === undefined || typeof value === "boolean") {
+    return undefined;
+  }
+  const parts = value.split(",").map((part) => Number(part.trim()));
+  if (parts.some((part) => !Number.isFinite(part) || part <= 0 || !Number.isInteger(part))) {
+    throw new Error(`Expected comma-separated positive integers, got ${value}`);
+  }
+  return parts;
 }
 
 main().catch((error) => {
