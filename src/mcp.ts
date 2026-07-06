@@ -4,8 +4,10 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import {
   cancelRun,
+  approvalPacket,
   dispatchProposal,
   doctor,
+  exportApprovalPacket,
   exportHarnessState,
   exportReviewPacket,
   getResults,
@@ -165,6 +167,19 @@ server.registerTool(
     }
   },
   async ({ manifest, allow_live }) => wrap(() => dispatchProposal(manifest, { allowLive: Boolean(allow_live) }))
+);
+
+server.registerTool(
+  "deepseek_harness_approval_packet",
+  {
+    title: "DeepSeek Harness Approval Packet",
+    description: "Prepare the explicit approval packet required before any live DeepSeek API call.",
+    inputSchema: {
+      manifest: z.record(z.unknown()),
+      output: z.string().optional()
+    }
+  },
+  async ({ manifest, output }) => wrap(() => (output ? exportApprovalPacket(manifest, {}, { output }) : approvalPacket(manifest)))
 );
 
 const transport = new StdioServerTransport();

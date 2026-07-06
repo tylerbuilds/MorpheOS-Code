@@ -7,6 +7,7 @@ import { HarnessStore, type ItemRecord } from "./store.js";
 import {
   assertPlanExecutable,
   buildExecutionPlan,
+  isPlaceholderApprovalId,
   parseManifest,
   type ExecutionPlan,
   type RunManifest
@@ -296,6 +297,95 @@ export function dispatchProposal(input: unknown, options: { allowLive?: boolean 
     },
     plan
   };
+}
+
+export function approvalPacket(input: unknown): Record<string, unknown> {
+  const manifest = parseManifest(input);
+  const approvalIdIsPlaceholder = manifest.approval_id ? isPlaceholderApprovalId(manifest.approval_id) : false;
+  const planWithoutLive = buildExecutionPlan(manifest, {
+    mode: "plan",
+    allowLive: false,
+    apiKeyPresent: Boolean(process.env.DEEPSEEK_API_KEY)
+  });
+  const planWithLiveFlag = buildExecutionPlan(manifest, {
+    mode: "plan",
+    allowLive: true,
+    apiKeyPresent: Boolean(process.env.DEEPSEEK_API_KEY)
+  });
+
+  return {
+    schema_version: "deepseek-harness.approval-packet.v1",
+    generated_at: new Date().toISOString(),
+    project: manifest.project,
+    requested_action: "authorise_deepseek_live_micro_smoke_or_batch",
+    approval_required: manifest.transport === "deepseek",
+    approval_id: manifest.approval_id ?? null,
+    approval_status: !manifest.approval_id
+      ? "owner_approval_required"
+      : approvalIdIsPlaceholder
+        ? "approval_id_placeholder_not_valid"
+        : "approval_id_bound",
+    provider: {
+      base_url: "https://api.deepseek.com",
+      model: manifest.model,
+      transport: manifest.transport,
+      api_key_present: Boolean(process.env.DEEPSEEK_API_KEY)
+    },
+    data_egress: {
+      egress_class: manifest.egress_class,
+      allowed_for_external_deepseek: manifest.egress_class === "non_sensitive_bulk",
+      item_count: manifest.items.length,
+      redaction_attestation_required: true,
+      sends_private_sensitive_health_genetics_or_secrets: manifest.egress_class !== "non_sensitive_bulk"
+    },
+    cost_and_rate: {
+      requested_cost_cap_usd: manifest.cost_cap_usd,
+      hard_cost_cap_usd: 5,
+      requested_concurrency: manifest.concurrency,
+      hard_live_concurrency_cap: 20
+    },
+    authority: {
+      canonical_state_write: false,
+      command_centre_state_write: false,
+      local_workspace_apply: false,
+      github_write: false,
+      deploy: false,
+      publish: false,
+      external_side_effects: false
+    },
+    gates: {
+      live_call_requires_cli_allow_live: true,
+      live_call_requires_approval_id: true,
+      live_call_requires_api_key: true,
+      executable_now_if_allow_live_supplied: planWithLiveFlag.ok
+    },
+    plan_without_live_flag: planWithoutLive,
+    plan_with_live_flag: planWithLiveFlag,
+    owner_approval_statement:
+      "Approve DeepSeek Harness live call for this non-sensitive manifest only, bounded by the listed cost and concurrency caps."
+  };
+}
+
+export function exportApprovalPacket(
+  input: unknown,
+  context: HarnessContext = {},
+  options: { output?: string } = {}
+): Record<string, unknown> {
+  const packet = approvalPacket(input);
+  const project = typeof packet.project === "string" ? packet.project : "deepseek-harness";
+  const output = path.resolve(
+    options.output ?? path.join(context.artifactRoot ?? defaultArtifactRoot(), `${project}-approval-packet.json`)
+  );
+  if (isCommandCentreStatePath(output)) {
+    throw new HarnessError(
+      "command_centre_state_write_blocked",
+      "Harness must not write Command Centre/_state directly; route this through Agent OS"
+    );
+  }
+
+  fs.mkdirSync(path.dirname(output), { recursive: true });
+  fs.writeFileSync(output, JSON.stringify(packet, null, 2));
+  return { ok: true, path: output, packet };
 }
 
 async function processItem(

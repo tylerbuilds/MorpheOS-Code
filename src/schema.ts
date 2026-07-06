@@ -117,6 +117,8 @@ export function buildExecutionPlan(
     }
     if (!manifest.approval_id) {
       blockers.push("approval_id_required_for_live_deepseek");
+    } else if (isPlaceholderApprovalId(manifest.approval_id)) {
+      blockers.push("approval_id_placeholder_not_allowed");
     }
     if (manifest.concurrency > LIVE_CONCURRENCY_CAP) {
       blockers.push(`live_concurrency_cap_exceeded_${LIVE_CONCURRENCY_CAP}`);
@@ -152,4 +154,8 @@ export function assertPlanExecutable(plan: ExecutionPlan): void {
   if (!plan.ok) {
     throw new HarnessError("blocked_by_safety_policy", "Run is blocked by harness safety policy", plan);
   }
+}
+
+export function isPlaceholderApprovalId(approvalId: string): boolean {
+  return /^(approval-id-goes-here|replace-me|todo|tbd|pending)$/i.test(approvalId.trim());
 }

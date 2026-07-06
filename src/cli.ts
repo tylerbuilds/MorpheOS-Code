@@ -2,8 +2,10 @@
 import fs from "node:fs";
 import {
   cancelRun,
+  approvalPacket,
   dispatchProposal,
   doctor,
+  exportApprovalPacket,
   exportHarnessState,
   exportReviewPacket,
   getResults,
@@ -61,6 +63,11 @@ async function main(): Promise<void> {
       break;
     case "dispatch-proposal":
       result = dispatchProposal(readJson(requiredArg(args, 0, "manifest path")), { allowLive });
+      break;
+    case "approval-packet":
+      result = args.flags.output
+        ? exportApprovalPacket(readJson(requiredArg(args, 0, "manifest path")), {}, { output: String(args.flags.output) })
+        : approvalPacket(readJson(requiredArg(args, 0, "manifest path")));
       break;
     default:
       throw new Error(`Unknown command: ${args.command || "(missing)"}`);

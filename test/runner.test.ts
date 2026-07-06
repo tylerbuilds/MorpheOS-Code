@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { exportHarnessState, exportReviewPacket, getResults, submitManifest } from "../src/runner.js";
+import { exportApprovalPacket, exportHarnessState, exportReviewPacket, getResults, submitManifest } from "../src/runner.js";
 
 test("submits and runs fake batch with SQLite state", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "deepseek-harness-"));
@@ -57,4 +57,28 @@ test("blocks direct Command Centre state writes", () => {
       ),
     /Command Centre\/_state/
   );
+});
+
+test("exports approval packet artefact", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "deepseek-harness-"));
+  const output = path.join(root, "approval.json");
+  const result = exportApprovalPacket(
+    {
+      schema_version: "deepseek-harness.run.v1",
+      project: "unit",
+      egress_class: "non_sensitive_bulk",
+      transport: "deepseek",
+      model: "deepseek-v4-flash",
+      concurrency: 2,
+      cost_cap_usd: 0.05,
+      canonical_writes: false,
+      external_side_effects: false,
+      items: [{ id: "a", prompt: "hello" }]
+    },
+    {},
+    { output }
+  ) as { path: string };
+
+  assert.equal(result.path, output);
+  assert.equal(fs.existsSync(output), true);
 });

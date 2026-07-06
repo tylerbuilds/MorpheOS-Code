@@ -22,3 +22,15 @@
 - no canonical state writes;
 - no external side effects beyond approved DeepSeek API inference;
 - Codex remains final reconciler and proof owner.
+
+## DSH-07 Gate
+
+Before any live DeepSeek call, generate:
+
+```bash
+node dist/src/cli.js approval-packet examples/live-micro-smoke-template.json --output artifacts/live-smoke-approval-packet.json
+```
+
+The template is deliberately non-executable because `approval_id` is a
+placeholder. Replace it only after Tyler approves the exact manifest, then run
+with `--allow-live` in a shell that has `DEEPSEEK_API_KEY`.
