@@ -5,13 +5,19 @@ sidecar, not an approval system and not an Agent OS state writer.
 
 ## Status
 
-Current implementation target: `DSH-00` to `DSH-04`.
+Core sprint status: `DSH-00` to `DSH-09` complete locally.
 
 - validates explicit run manifests;
 - stores runs, items and events in local SQLite;
 - supports fake and DeepSeek dry-run transports;
 - refuses live DeepSeek calls unless approval, egress, cost and side-effect gates pass;
-- exposes a CLI and MCP stdio server over the same service layer.
+- exposes a CLI and MCP stdio server over the same service layer;
+- exports Agent OS readable state snapshots, Dispatch proposals and review packets;
+- includes a gated scale-ramp command for measured concurrency tests.
+
+The live proof on 2026-07-06 completed a non-sensitive DeepSeek V4 Flash
+scale ramp at 5, 10 and 20 concurrency. All three 40-item runs completed;
+the fastest measured leg was concurrency 20 at 15.86 items/second.
 
 ## Safety Contract
 
@@ -22,12 +28,14 @@ mutate GitHub, handle credentials, or approve its own output.
 Live DeepSeek calls require:
 
 - `egress_class: "non_sensitive_bulk"`;
-- `approval_id`;
+- a real `approval_id`, not a placeholder;
 - `cost_cap_usd`;
 - `concurrency` within the local live cap;
 - `canonical_writes: false`;
 - `external_side_effects: false`;
 - `DEEPSEEK_API_KEY` present in the process environment.
+
+Live scale ramps additionally require `--allow-live-scale`.
 
 ## Commands
 
@@ -49,6 +57,12 @@ node dist/src/cli.js scale-ramp examples/basic-run.json --concurrency 5,10,20 --
 ```
 
 The default example uses the fake transport and performs no network calls.
+
+Operator docs:
+
+- `docs/operator-guide.md`
+- `docs/sprint-plan.md`
+- `docs/proof/DSH-09-CLOSEOUT-2026-07-06.md`
 
 ## MCP
 

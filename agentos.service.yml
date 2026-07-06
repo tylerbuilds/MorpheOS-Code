@@ -16,8 +16,10 @@ docs:
   primary:
     - README.md
     - docs/sprint-plan.md
+    - docs/operator-guide.md
     - docs/agent-os-integration.md
     - docs/dispatch-integration.md
+    - docs/proof/DSH-09-CLOSEOUT-2026-07-06.md
 metrics_sources:
   - .state/deepseek-harness.sqlite
 agent_lanes:
