@@ -82,3 +82,44 @@ Deliverables:
 - adaptive concurrency selection;
 - metamorphic tests proving item counts and ids survive concurrency changes;
 - golden worker reports.
+
+## DSH-17 OCR And Document Ingest Lane
+
+Status: future / not now.
+
+Skills: `mcp-server-design`, `parallel-llm-batch-processing`,
+`testing-golden-artifacts`.
+
+Goal: evaluate screenshot/PDF OCR-to-document workflows as an optional harness
+lane for agents, without weakening the current text-only DeepSeek API safety
+contract.
+
+Context:
+
+- Slack may be a useful capture surface, but it should not be treated as the
+  OCR system of record.
+- DeepSeek-OCR is a separate model/runtime path, not a drop-in replacement for
+  the current chat-completions transport.
+- OCR inputs may contain private or sensitive text, so live external egress must
+  stay blocked by default until the data classification and approval route are
+  explicit.
+
+Deliverables:
+
+- benchmark corpus of screenshots and PDFs with expected Markdown outputs;
+- baseline adapters for local OCR and DeepSeek-OCR via a local or controlled
+  OpenAI-compatible endpoint;
+- manifest extension proposal for file/image inputs, artifact paths, redaction
+  notes and OCR confidence metadata;
+- MCP macro design for "screenshots in, reviewable document out";
+- QA report that compares OCR output against source images and flags uncertain
+  lines, table/layout drift and missing text.
+
+Exit proof:
+
+- fixture-based OCR benchmark with golden Markdown artifacts;
+- privacy/egress gate tests for image/PDF inputs;
+- MCP smoke proving agents can discover the OCR lane without confusing it with
+  text-only batch inference;
+- no Slack, Drive, WordPress, repo-apply or external document writes without a
+  separate approval route.

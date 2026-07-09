@@ -17,6 +17,7 @@
 | DSH-10 | Borrowed-patterns design | Proposed PR | GitHub pattern survey and Rust split decision |
 | DSH-11 | Rust worker core | Proposed PR | fake-transport Rust worker runs existing manifest shape |
 | DSH-12 | Adaptive throughput | Proposed PR | retry/backoff and adaptive concurrency proof |
+| DSH-17 | OCR and document ingest lane | Future / not now | screenshot/PDF OCR benchmark, DeepSeek-OCR/local adapter proposal, privacy gates |
 
 ## Non-Negotiables
 
@@ -78,3 +79,11 @@ small PRs:
 - introduce Rust first as a worker binary, not a whole-repo rewrite;
 - keep manifests, artifacts and review packets compatible across languages;
 - keep DeepSeek live calls approval-gated and disabled by default.
+
+## DSH-17 OCR Boundary
+
+OCR is future work, not part of the current core harness. Treat Slack as a
+capture/review surface, not as the OCR system of record. DeepSeek-OCR should be
+evaluated as a separate local or controlled endpoint with file/image manifest
+support, golden OCR fixtures, confidence metadata, and privacy/egress gates.
+No Slack, Drive or document writes are in scope without a later approval route.
