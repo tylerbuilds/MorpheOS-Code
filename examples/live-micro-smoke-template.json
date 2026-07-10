@@ -1,7 +1,7 @@
 {
   "schema_version": "deepseek-harness.run.v1",
   "project": "deepseek-harness-live-micro-smoke",
-  "description": "Tiny non-sensitive live DeepSeek smoke template. Replace approval_id only after explicit Tyler approval.",
+  "description": "Tiny non-sensitive live DeepSeek smoke template. It remains blocked until an owner-signed receipt is attached.",
   "egress_class": "non_sensitive_bulk",
   "transport": "deepseek",
   "model": "deepseek-v4-flash",
@@ -9,9 +9,9 @@
     "type": "disabled"
   },
   "response_format": "json_object",
+  "max_tokens": 128,
   "concurrency": 2,
   "cost_cap_usd": 0.05,
-  "approval_id": "APPROVAL-ID-GOES-HERE",
   "canonical_writes": false,
   "external_side_effects": false,
   "items": [

@@ -24,7 +24,7 @@ function tempContext() {
   };
 }
 
-test("privacy checker blocks obvious credentials without returning matched text", () => {
+test("privacy checker blocks credential values without returning matched text", () => {
   const report = privacyCheck({
     schema_version: "deepseek-harness.run.v1",
     project: "privacy-unit",
@@ -35,7 +35,7 @@ test("privacy checker blocks obvious credentials without returning matched text"
     cost_cap_usd: 0.05,
     canonical_writes: false,
     external_side_effects: false,
-    items: [{ id: "a", prompt: "This fixture mentions an API key label and must be treated as unsafe." }]
+    items: [{ id: "a", prompt: "api_key = abcDEF0123456789abcDEF0123456789" }]
   }) as {
     ok: boolean;
     privacy: { recommended_egress_class: string; findings: Array<{ signal: string }> };
@@ -44,9 +44,27 @@ test("privacy checker blocks obvious credentials without returning matched text"
 
   assert.equal(report.ok, false);
   assert.equal(report.privacy.recommended_egress_class, "secrets_or_credentials");
-  assert.equal(report.privacy.findings[0].signal, "credential_label");
-  assert.equal(JSON.stringify(report).includes("API key label"), false);
+  assert.equal(report.privacy.findings.some((finding) => finding.signal === "credential_assignment"), true);
+  assert.equal(JSON.stringify(report).includes("abcDEF0123456789"), false);
   assert.equal(report.blockers.includes("privacy_classifier_blocks_external_deepseek"), true);
+});
+
+test("privacy checker warns on credential discussion without inventing a secret", () => {
+  const report = privacyCheck({
+    schema_version: "deepseek-harness.run.v1",
+    project: "privacy-discussion",
+    egress_class: "non_sensitive_bulk",
+    transport: "deepseek",
+    model: "deepseek-v4-flash",
+    concurrency: 1,
+    cost_cap_usd: 0.01,
+    canonical_writes: false,
+    external_side_effects: false,
+    items: [{ id: "a", prompt: "Explain why API keys should not appear in logs." }]
+  }) as { privacy: { external_deepseek_allowed: boolean; findings: Array<{ signal: string; severity: string }> } };
+
+  assert.equal(report.privacy.external_deepseek_allowed, true);
+  assert.equal(report.privacy.findings.some((finding) => finding.signal === "credential_discussion" && finding.severity === "warning"), true);
 });
 
 test("writes golden artefacts including cost ledger and review packet ledger", async () => {

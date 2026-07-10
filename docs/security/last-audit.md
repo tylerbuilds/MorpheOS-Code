@@ -55,7 +55,7 @@ Results:
 | ID | Severity | Status | Finding | Mitigation |
 | --- | --- | --- | --- | --- |
 | SEC-001 | MEDIUM | Open | No explicit open-source licence on `main`; public source is not reusable as open source until a licence is chosen. | Add `LICENSE` after maintainer chooses MIT, Apache-2.0 or another intended licence. |
-| SEC-002 | LOW | Mitigated | Live DeepSeek path could leak sensitive prompts if a bad manifest is forced through. | Existing gates require `non_sensitive_bulk`, real approval id, live flags, cost cap and API key presence. Tests cover blocked paths. |
+| SEC-002 | LOW | Mitigated | Live DeepSeek path could leak sensitive prompts or spend beyond a single manifest cap. | Live calls now require an owner-signed one-use receipt bound to the exact payload/model/egress/limits, an immediate outbound privacy re-scan, atomic run and daily budget reservation, and separate API-key/public-key configuration. Tests cover expiry, replay, tampering, mismatches and missing usage. |
 | SEC-003 | LOW | Open | No CI security gate yet. | Add GitHub Actions for npm audit, tests, Rust tests once Rust PR lands, and public-safety scans. |
 
 ## Follow-Up

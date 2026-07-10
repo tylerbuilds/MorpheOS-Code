@@ -8,7 +8,7 @@ secret manager.
 
 1. Write or choose a manifest with non-sensitive prompts.
 2. Run `plan` and fix any blockers.
-3. For live calls, generate an approval packet.
+3. For live calls, generate an approval packet and obtain an owner-signed receipt from the separate approval authority.
 4. Run the batch or scale ramp with explicit live flags.
 5. Export review packets and a state snapshot.
 6. Let Codex or Agent OS reconcile outputs and decide the next action.
@@ -66,8 +66,10 @@ and `cost-ledger.json`.
 
 ## Live Micro-Smoke
 
-Use a manifest modelled on `examples/live-micro-smoke-template.json`, but replace
-the placeholder approval only after Tyler has approved the exact run.
+Use a manifest modelled on `examples/live-micro-smoke-template.json`. Generate
+the packet to obtain the exact network-payload digest, then attach a short-lived
+owner-signed `deepseek-harness.inference-receipt.v1`. The signer is deliberately
+not part of this harness; only its public verification key is available here.
 
 ```bash
 node dist/src/cli.js approval-packet artifacts/live-micro-smoke-approved.json --output artifacts/live-micro-smoke-approval-packet.json
@@ -77,6 +79,10 @@ node dist/src/cli.js submit artifacts/live-micro-smoke-approved.json --start --a
 
 The key must only be supplied through the process environment. Do not place it in
 manifests, docs, logs, shell history snippets, MCP payloads or artefacts.
+The receipt must bind provider, exact model, payload SHA-256, non-sensitive
+egress, item/concurrency limits, run/daily cost ceilings, a versioned rate
+snapshot, issue/expiry times and a nonce. Receipts are consumed once before the
+first request. A free-form approval ID is ignored.
 
 ## Live Scale Ramp
 
@@ -134,6 +140,6 @@ For Codex, append `codex-mcp-server.toml` to `~/.codex/config.toml`.
 - no canonical Agent OS state writes;
 - no command-centre `_state` writes;
 - no repo apply, deploy, publish, send or permission mutation from harness runs;
-- no live DeepSeek calls without approval packet and live flags;
+- no live DeepSeek calls without a valid signed one-use receipt and live flags;
 - no live scale ramp without `--allow-live-scale`;
 - no GitHub write by the harness runtime.

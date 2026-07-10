@@ -18,11 +18,12 @@
 | DSH-11 | Rust worker core | Proposed PR | fake-transport Rust worker runs existing manifest shape |
 | DSH-12 | Adaptive throughput | Proposed PR | retry/backoff and adaptive concurrency proof |
 | DSH-BATCH-1-8 | Agent utility pack | Done locally | local canary, benchmark, failure injection, cost ledger, privacy check, golden artefacts and model comparison tests |
+| DSH-BATCH-B | Live authority hardening | Done locally | signed one-use receipts, exact-payload re-scan, atomic run/daily budget reservation and safe provider errors |
 | DSH-17 | OCR and document ingest lane | Future / not now | screenshot/PDF OCR benchmark, DeepSeek-OCR/local adapter proposal, privacy gates |
 
 ## Non-Negotiables
 
-- no live DeepSeek calls without explicit approval packet;
+- no live DeepSeek calls without an owner-signed one-use receipt bound to the exact payload;
 - no secrets in logs, artefacts or MCP responses;
 - no canonical state writes;
 - no external side effects beyond approved DeepSeek API inference;
@@ -36,9 +37,10 @@ Before any live DeepSeek call, generate:
 node dist/src/cli.js approval-packet examples/live-micro-smoke-template.json --output artifacts/live-smoke-approval-packet.json
 ```
 
-The template is deliberately non-executable because `approval_id` is a
-placeholder. Replace it only after Tyler approves the exact manifest, then run
-with `--allow-live` in a shell that has `DEEPSEEK_API_KEY`.
+The template is deliberately non-executable because it has no signed receipt.
+The approval packet exposes the exact payload digest without granting authority.
+Only a separately issued receipt verified by `DEEPSEEK_HARNESS_APPROVAL_PUBLIC_KEY`
+can unlock `--allow-live`; `DEEPSEEK_API_KEY` is still required separately.
 
 ## DSH-08 Scale Ramp
 

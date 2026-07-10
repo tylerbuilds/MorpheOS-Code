@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
+import { observedUsageCost } from "./budget.js";
 import { buildCostLedger } from "./cost.js";
 import { HarnessError } from "./errors.js";
 import { defaultArtifactRoot, defaultStateDir } from "./paths.js";
@@ -9,7 +10,6 @@ import { HarnessStore, type ItemRecord } from "./store.js";
 import {
   assertPlanExecutable,
   buildExecutionPlan,
-  isPlaceholderApprovalId,
   parseManifest,
   type ExecutionPlan,
   type RunItem,
@@ -96,6 +96,7 @@ export function doctor(context: HarnessContext = {}): Record<string, unknown> {
         mcp_entrypoint: path.resolve(process.cwd(), "dist/src/mcp.js")
       },
       deepseek_api_key_present: Boolean(process.env.DEEPSEEK_API_KEY),
+      signed_receipt_public_key_present: Boolean(process.env.DEEPSEEK_HARNESS_APPROVAL_PUBLIC_KEY),
       live_calls_default: "disabled",
       live_concurrency_cap: 20,
       canonical_state_write: false,
@@ -162,7 +163,8 @@ export function planManifest(input: unknown, options: { allowLive?: boolean } = 
   const plan = buildExecutionPlan(manifest, {
     mode: "plan",
     allowLive: options.allowLive,
-    apiKeyPresent: Boolean(process.env.DEEPSEEK_API_KEY)
+    apiKeyPresent: Boolean(process.env.DEEPSEEK_API_KEY),
+    approvalPublicKey: process.env.DEEPSEEK_HARNESS_APPROVAL_PUBLIC_KEY
   });
   return { ok: plan.ok, plan };
 }
@@ -176,7 +178,8 @@ export async function submitManifest(
   const plan = buildExecutionPlan(manifest, {
     mode: "queued",
     allowLive: options.allowLive,
-    apiKeyPresent: Boolean(process.env.DEEPSEEK_API_KEY)
+    apiKeyPresent: Boolean(process.env.DEEPSEEK_API_KEY),
+    approvalPublicKey: process.env.DEEPSEEK_HARNESS_APPROVAL_PUBLIC_KEY
   });
   assertPlanExecutable(plan);
 
@@ -187,7 +190,7 @@ export async function submitManifest(
     const artifactDir = path.resolve(manifest.artifact_dir ?? path.join(artifactRoot, runId));
     const manifestWithRunId: RunManifest = { ...manifest, run_id: runId, artifact_dir: artifactDir };
     store.createRun(runId, manifestWithRunId, artifactDir);
-    fs.writeFileSync(path.join(artifactDir, "manifest.json"), JSON.stringify(manifestWithRunId, null, 2));
+    fs.writeFileSync(path.join(artifactDir, "manifest.json"), JSON.stringify(redactReceiptForArtifact(manifestWithRunId), null, 2));
 
     if (options.start) {
       await processRun(runId, context, { allowLive: options.allowLive });
@@ -219,9 +222,37 @@ export async function processRun(
     const plan = buildExecutionPlan(run.manifest, {
       mode: "execute",
       allowLive: options.allowLive,
-      apiKeyPresent: Boolean(process.env.DEEPSEEK_API_KEY)
+      apiKeyPresent: Boolean(process.env.DEEPSEEK_API_KEY),
+      approvalPublicKey: process.env.DEEPSEEK_HARNESS_APPROVAL_PUBLIC_KEY
     });
     assertPlanExecutable(plan);
+
+    if (run.manifest.transport === "deepseek") {
+      const receipt = run.manifest.approval_receipt;
+      const receiptSha256 = plan.approval.receipt_sha256;
+      const reservation = plan.budget_reservation;
+      if (!receipt || !receiptSha256 || !reservation) {
+        throw new HarnessError("live_authority_incomplete", "Signed approval and budget reservation are required");
+      }
+      try {
+        store.authoriseAndReserveLiveRun(
+          runId,
+          receipt,
+          receiptSha256,
+          reservation,
+          plan.approval.network_payload_sha256
+        );
+      } catch (error) {
+        if (error instanceof HarnessError && error.code === "daily_budget_exhausted") {
+          store.markBudgetExhausted(runId, error.code);
+          writeResultArtifacts(store, runId);
+          return store.summary(runId);
+        }
+        store.setRunStatus(runId, "failed", error instanceof HarnessError ? error.code : "live_authority_failed");
+        writeResultArtifacts(store, runId);
+        throw error;
+      }
+    }
 
     const transport = selectTransport(run.manifest, options);
     store.setRunStatus(runId, "running");
@@ -243,6 +274,14 @@ export async function processRun(
       store.setRunStatus(runId, "failed", `${failed.length} item(s) failed`);
     } else {
       store.setRunStatus(runId, "completed");
+    }
+
+    if (run.manifest.transport === "deepseek" && run.manifest.approval_receipt) {
+      const observedCosts = items.map((item) => observedUsageCost(item.usage, run.manifest.approval_receipt!));
+      const charged = observedCosts.every((cost) => cost !== null)
+        ? Number(observedCosts.reduce<number>((total, cost) => total + Number(cost), 0).toFixed(8))
+        : null;
+      store.reconcileBudget(runId, charged);
     }
 
     writeResultArtifacts(store, runId);
@@ -285,7 +324,7 @@ export function exportReviewPacket(runId: string, context: HarnessContext = {}):
   try {
     const run = store.getRun(runId);
     const items = store.listItems(runId);
-    const costLedger = buildCostLedger(run, items);
+    const costLedger = buildCostLedger(run, items, store.budgetStatus(runId));
     const packet = {
       schema_version: "deepseek-harness.review-packet.v1",
       run: store.summary(runId),
@@ -293,7 +332,9 @@ export function exportReviewPacket(runId: string, context: HarnessContext = {}):
         canonical_writes: false,
         external_side_effects: false,
         external_api_inference: run.manifest.transport === "deepseek",
-        approval_id: run.manifest.approval_id ?? null,
+        approval_receipt_id: run.manifest.approval_receipt?.receipt_id ?? null,
+        approval_receipt_consumed: store.budgetStatus(runId) !== null,
+        approval_receipt_signature_stored: false,
         egress_class: run.manifest.egress_class,
         cost_cap_usd: run.manifest.cost_cap_usd
       },
@@ -360,7 +401,8 @@ export function dispatchProposal(input: unknown, options: { allowLive?: boolean 
   const plan = buildExecutionPlan(manifest, {
     mode: "plan",
     allowLive: options.allowLive,
-    apiKeyPresent: Boolean(process.env.DEEPSEEK_API_KEY)
+    apiKeyPresent: Boolean(process.env.DEEPSEEK_API_KEY),
+    approvalPublicKey: process.env.DEEPSEEK_HARNESS_APPROVAL_PUBLIC_KEY
   });
   const payloadHash = createHash("sha256").update(JSON.stringify(manifest)).digest("hex");
   const approvalRequired = manifest.transport === "deepseek" || !plan.ok;
@@ -389,7 +431,8 @@ export function dispatchProposal(input: unknown, options: { allowLive?: boolean 
       executionClass: "sandbox_prepare",
       canonicalStateWrite: false,
       commandCentreStateWrite: false,
-      requiresMitlReceipt: false
+      requiresMitlReceipt: false,
+      requiresOwnerInferenceReceipt: true
     },
     evidence_target: {
       artifact_dir: manifest.artifact_dir ?? null,
@@ -401,16 +444,17 @@ export function dispatchProposal(input: unknown, options: { allowLive?: boolean 
 
 export function approvalPacket(input: unknown): Record<string, unknown> {
   const manifest = parseManifest(input);
-  const approvalIdIsPlaceholder = manifest.approval_id ? isPlaceholderApprovalId(manifest.approval_id) : false;
   const planWithoutLive = buildExecutionPlan(manifest, {
     mode: "plan",
     allowLive: false,
-    apiKeyPresent: Boolean(process.env.DEEPSEEK_API_KEY)
+    apiKeyPresent: Boolean(process.env.DEEPSEEK_API_KEY),
+    approvalPublicKey: process.env.DEEPSEEK_HARNESS_APPROVAL_PUBLIC_KEY
   });
   const planWithLiveFlag = buildExecutionPlan(manifest, {
     mode: "plan",
     allowLive: true,
-    apiKeyPresent: Boolean(process.env.DEEPSEEK_API_KEY)
+    apiKeyPresent: Boolean(process.env.DEEPSEEK_API_KEY),
+    approvalPublicKey: process.env.DEEPSEEK_HARNESS_APPROVAL_PUBLIC_KEY
   });
 
   return {
@@ -419,12 +463,12 @@ export function approvalPacket(input: unknown): Record<string, unknown> {
     project: manifest.project,
     requested_action: "authorise_deepseek_live_micro_smoke_or_batch",
     approval_required: manifest.transport === "deepseek",
-    approval_id: manifest.approval_id ?? null,
-    approval_status: !manifest.approval_id
-      ? "owner_approval_required"
-      : approvalIdIsPlaceholder
-        ? "approval_id_placeholder_not_valid"
-        : "approval_id_bound",
+    approval_receipt_id: manifest.approval_receipt?.receipt_id ?? null,
+    approval_status: planWithLiveFlag.approval.receipt_sha256
+      ? planWithLiveFlag.ok
+        ? "signed_receipt_valid"
+        : "signed_receipt_blocked"
+      : "owner_signed_receipt_required",
     provider: {
       base_url: "https://api.deepseek.com",
       model: manifest.model,
@@ -455,14 +499,16 @@ export function approvalPacket(input: unknown): Record<string, unknown> {
     },
     gates: {
       live_call_requires_cli_allow_live: true,
-      live_call_requires_approval_id: true,
+      live_call_requires_signed_receipt: true,
+      live_call_requires_one_use_receipt_consumption: true,
       live_call_requires_api_key: true,
+      live_call_requires_max_tokens_and_budget_reservation: true,
       executable_now_if_allow_live_supplied: planWithLiveFlag.ok
     },
     plan_without_live_flag: planWithoutLive,
     plan_with_live_flag: planWithLiveFlag,
     owner_approval_statement:
-      "Approve DeepSeek Harness live call for this non-sensitive manifest only, bounded by the listed cost and concurrency caps."
+      "Issue one signed DeepSeek inference receipt for this exact non-sensitive payload and the listed cost and concurrency caps."
   };
 }
 
@@ -493,7 +539,8 @@ export function privacyCheck(input: unknown): Record<string, unknown> {
   const plan = buildExecutionPlan(manifest, {
     mode: "plan",
     allowLive: false,
-    apiKeyPresent: Boolean(process.env.DEEPSEEK_API_KEY)
+    apiKeyPresent: Boolean(process.env.DEEPSEEK_API_KEY),
+    approvalPublicKey: process.env.DEEPSEEK_HARNESS_APPROVAL_PUBLIC_KEY
   });
   return {
     ok: plan.privacy.external_deepseek_allowed,
@@ -513,7 +560,7 @@ export function exportCostLedger(
   const store = createStore(context);
   try {
     const run = store.getRun(runId);
-    const ledger = buildCostLedger(run, store.listItems(runId));
+    const ledger = buildCostLedger(run, store.listItems(runId), store.budgetStatus(runId));
     const output = path.resolve(options.output ?? path.join(run.artifact_dir, "cost-ledger.json"));
     if (isCommandCentreStatePath(output)) {
       throw new HarnessError(
@@ -635,12 +682,14 @@ export function modelComparisonPlan(
       project: `${manifest.project}-${model}`,
       transport,
       model,
-      approval_id: undefined
+      approval_id: undefined,
+      approval_receipt: undefined
     };
     const plan = buildExecutionPlan(candidate, {
       mode: "plan",
       allowLive: false,
-      apiKeyPresent: Boolean(process.env.DEEPSEEK_API_KEY)
+      apiKeyPresent: Boolean(process.env.DEEPSEEK_API_KEY),
+      approvalPublicKey: process.env.DEEPSEEK_HARNESS_APPROVAL_PUBLIC_KEY
     });
     return { model, manifest: candidate, plan };
   });
@@ -805,7 +854,7 @@ async function mapLimit<T>(items: T[], limit: number, worker: (item: T) => Promi
 function writeResultArtifacts(store: HarnessStore, runId: string): void {
   const run = store.getRun(runId);
   const items = store.listItems(runId);
-  const costLedger = buildCostLedger(run, items);
+  const costLedger = buildCostLedger(run, items, store.budgetStatus(runId));
   fs.mkdirSync(run.artifact_dir, { recursive: true });
   fs.writeFileSync(path.join(run.artifact_dir, "summary.json"), JSON.stringify(store.summary(runId), null, 2));
   fs.writeFileSync(path.join(run.artifact_dir, "cost-ledger.json"), JSON.stringify(costLedger, null, 2));
@@ -864,6 +913,19 @@ function localMacroAuthority(): Record<string, boolean | string> {
 function isCommandCentreStatePath(filePath: string): boolean {
   const normalised = filePath.split(path.sep).join("/");
   return normalised.includes("/Documents/Obsidian/Command Centre/_state/");
+}
+
+function redactReceiptForArtifact(manifest: RunManifest): RunManifest {
+  if (!manifest.approval_receipt) {
+    return manifest;
+  }
+  return {
+    ...manifest,
+    approval_receipt: {
+      ...manifest.approval_receipt,
+      signature_base64: "[signed-receipt-redacted]"
+    }
+  };
 }
 
 function expandItems(items: RunManifest["items"], itemCount: number): RunManifest["items"] {

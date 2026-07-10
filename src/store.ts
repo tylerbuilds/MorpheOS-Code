@@ -2,10 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { HarnessError } from "./errors.js";
-import type { RunManifest } from "./schema.js";
+import type { ApprovalReceipt, RunManifest } from "./schema.js";
+import type { BudgetEstimate } from "./budget.js";
 
-export type RunStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
-export type ItemStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
+export type RunStatus = "queued" | "running" | "completed" | "failed" | "cancelled" | "budget_exhausted";
+export type ItemStatus = "queued" | "running" | "completed" | "failed" | "cancelled" | "budget_exhausted";
 
 export interface RunRecord {
   run_id: string;
@@ -80,6 +81,26 @@ export class HarnessStore {
         type TEXT NOT NULL,
         payload_json TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS approval_receipt_consumptions (
+        receipt_id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        receipt_sha256 TEXT NOT NULL,
+        network_payload_sha256 TEXT NOT NULL,
+        consumed_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS budget_reservations (
+        run_id TEXT PRIMARY KEY,
+        receipt_id TEXT NOT NULL,
+        local_date TEXT NOT NULL,
+        rate_snapshot_id TEXT NOT NULL,
+        reserved_usd REAL NOT NULL,
+        charged_usd REAL NOT NULL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        reconciled_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_budget_reservations_local_date ON budget_reservations(local_date);
+      CREATE INDEX IF NOT EXISTS idx_budget_reservations_created_at ON budget_reservations(created_at);
     `);
   }
 
@@ -209,6 +230,133 @@ export class HarnessStore {
     return this.getRun(runId);
   }
 
+  authoriseAndReserveLiveRun(
+    runId: string,
+    receipt: ApprovalReceipt,
+    receiptSha256: string,
+    estimate: BudgetEstimate,
+    networkPayloadSha256: string,
+    now = new Date()
+  ): void {
+    const consumedAt = now.toISOString();
+    const localDate = consumedAt.slice(0, 10);
+    const rollingWindowStart = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const replay = this.db
+        .prepare("SELECT run_id FROM approval_receipt_consumptions WHERE receipt_id = ?")
+        .get(receipt.receipt_id) as Record<string, unknown> | undefined;
+      if (replay) {
+        throw new HarnessError("approval_receipt_replayed", "Approval receipt has already been consumed", {
+          receipt_id: receipt.receipt_id
+        });
+      }
+      const existingBudget = this.db
+        .prepare(
+          "SELECT COALESCE(SUM(CASE WHEN status = 'reserved' THEN reserved_usd ELSE charged_usd END), 0) AS total FROM budget_reservations WHERE created_at >= ?"
+        )
+        .get(rollingWindowStart) as Record<string, unknown>;
+      const dailyCommitted = Number(existingBudget.total ?? 0);
+      if (dailyCommitted + estimate.reserved_usd > receipt.daily_cost_cap_usd + 1e-9) {
+        throw new HarnessError("daily_budget_exhausted", "Daily DeepSeek cost ceiling would be exceeded", {
+          daily_committed_usd: Number(dailyCommitted.toFixed(8)),
+          requested_reservation_usd: estimate.reserved_usd,
+          daily_cost_cap_usd: receipt.daily_cost_cap_usd,
+          rolling_window_started_at: rollingWindowStart
+        });
+      }
+      this.db
+        .prepare(
+          "INSERT INTO approval_receipt_consumptions (receipt_id, run_id, receipt_sha256, network_payload_sha256, consumed_at) VALUES (?, ?, ?, ?, ?)"
+        )
+        .run(receipt.receipt_id, runId, receiptSha256, networkPayloadSha256, consumedAt);
+      this.db
+        .prepare(
+          "INSERT INTO budget_reservations (run_id, receipt_id, local_date, rate_snapshot_id, reserved_usd, charged_usd, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'reserved', ?)"
+        )
+        .run(
+          runId,
+          receipt.receipt_id,
+          localDate,
+          estimate.rate_snapshot_id,
+          estimate.reserved_usd,
+          estimate.reserved_usd,
+          consumedAt
+        );
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    this.event(runId, "live_run_authorised", {
+      receipt_sha256: receiptSha256,
+      network_payload_sha256: networkPayloadSha256,
+      reserved_usd: estimate.reserved_usd,
+      rate_snapshot_id: estimate.rate_snapshot_id
+    });
+    this.redactConsumedReceipt(runId);
+  }
+
+  redactConsumedReceipt(runId: string): void {
+    const run = this.getRun(runId);
+    if (!run.manifest.approval_receipt) {
+      return;
+    }
+    const redactedManifest: RunManifest = {
+      ...run.manifest,
+      approval_receipt: {
+        ...run.manifest.approval_receipt,
+        signature_base64: "[consumed-signature-redacted]"
+      }
+    };
+    this.db
+      .prepare("UPDATE runs SET manifest_json = ?, updated_at = ? WHERE run_id = ?")
+      .run(JSON.stringify(redactedManifest), new Date().toISOString(), runId);
+  }
+
+  markBudgetExhausted(runId: string, reason: string): void {
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        "UPDATE items SET status = 'budget_exhausted', error = ?, finished_at = ? WHERE run_id = ? AND status = 'queued'"
+      )
+      .run(reason, now, runId);
+    this.setRunStatus(runId, "budget_exhausted", reason);
+  }
+
+  reconcileBudget(runId: string, chargedUsd: number | null): void {
+    const row = this.db
+      .prepare("SELECT reserved_usd FROM budget_reservations WHERE run_id = ?")
+      .get(runId) as Record<string, unknown> | undefined;
+    if (!row) {
+      return;
+    }
+    const reserved = Number(row.reserved_usd);
+    const retainReservation = chargedUsd === null;
+    const charged = retainReservation ? reserved : Math.max(0, chargedUsd);
+    const status = retainReservation ? "retained_conservative" : charged > reserved + 1e-9 ? "overrun" : "reconciled";
+    this.db
+      .prepare(
+        "UPDATE budget_reservations SET charged_usd = ?, status = ?, reconciled_at = ? WHERE run_id = ?"
+      )
+      .run(charged, status, new Date().toISOString(), runId);
+    this.event(runId, "budget_reconciled", {
+      charged_usd: Number(charged.toFixed(8)),
+      reserved_usd: Number(reserved.toFixed(8)),
+      missing_usage_retained_reservation: retainReservation,
+      reservation_overrun: status === "overrun"
+    });
+  }
+
+  budgetStatus(runId: string): Record<string, unknown> | null {
+    const row = this.db
+      .prepare(
+        "SELECT local_date, rate_snapshot_id, reserved_usd, charged_usd, status, created_at, reconciled_at FROM budget_reservations WHERE run_id = ?"
+      )
+      .get(runId) as Record<string, unknown> | undefined;
+    return row ? { ...row } : null;
+  }
+
   summary(runId: string): Record<string, unknown> {
     const run = this.getRun(runId);
     const items = this.listItems(runId);
@@ -227,7 +375,8 @@ export class HarnessStore {
       updated_at: run.updated_at,
       error: run.error,
       item_count: items.length,
-      counts
+      counts,
+      budget: this.budgetStatus(runId)
     };
   }
 

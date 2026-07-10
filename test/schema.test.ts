@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { approvalPacket, dispatchProposal } from "../src/runner.js";
 import { buildExecutionPlan, parseManifest } from "../src/schema.js";
 
-test("rejects live DeepSeek without approval and live flag", () => {
+test("rejects live DeepSeek without signed approval, token cap and live flag", () => {
   const manifest = parseManifest({
     schema_version: "deepseek-harness.run.v1",
     project: "unit",
@@ -20,11 +20,12 @@ test("rejects live DeepSeek without approval and live flag", () => {
   const plan = buildExecutionPlan(manifest, { mode: "execute", allowLive: false, apiKeyPresent: false });
   assert.equal(plan.ok, false);
   assert.match(plan.blockers.join(","), /live_deepseek_call_not_enabled_by_caller/);
-  assert.match(plan.blockers.join(","), /approval_id_required_for_live_deepseek/);
+  assert.match(plan.blockers.join(","), /signed_approval_receipt_required_for_live_deepseek/);
+  assert.match(plan.blockers.join(","), /max_tokens_required_for_live_deepseek/);
   assert.match(plan.blockers.join(","), /deepseek_api_key_not_present/);
 });
 
-test("rejects placeholder approval ids for live DeepSeek", () => {
+test("free-form approval ids never authorise live DeepSeek", () => {
   const manifest = parseManifest({
     schema_version: "deepseek-harness.run.v1",
     project: "unit",
@@ -41,7 +42,7 @@ test("rejects placeholder approval ids for live DeepSeek", () => {
 
   const plan = buildExecutionPlan(manifest, { mode: "execute", allowLive: true, apiKeyPresent: true });
   assert.equal(plan.ok, false);
-  assert.match(plan.blockers.join(","), /approval_id_placeholder_not_allowed/);
+  assert.match(plan.blockers.join(","), /signed_approval_receipt_required_for_live_deepseek/);
 });
 
 test("allows fake non-sensitive batch", () => {
@@ -102,18 +103,19 @@ test("builds approval packet with live gates", () => {
   }) as {
     schema_version: string;
     approval_required: boolean;
-    gates: { live_call_requires_cli_allow_live: boolean };
+    gates: { live_call_requires_cli_allow_live: boolean; live_call_requires_signed_receipt: boolean };
     authority: { deploy: boolean; publish: boolean };
   };
 
   assert.equal(packet.schema_version, "deepseek-harness.approval-packet.v1");
   assert.equal(packet.approval_required, true);
   assert.equal(packet.gates.live_call_requires_cli_allow_live, true);
+  assert.equal(packet.gates.live_call_requires_signed_receipt, true);
   assert.equal(packet.authority.deploy, false);
   assert.equal(packet.authority.publish, false);
 });
 
-test("marks placeholder approval packet ids as invalid", () => {
+test("approval packet ignores placeholder strings and requires a signed receipt", () => {
   const packet = approvalPacket({
     schema_version: "deepseek-harness.run.v1",
     project: "unit",
@@ -130,5 +132,5 @@ test("marks placeholder approval packet ids as invalid", () => {
     approval_status: string;
   };
 
-  assert.equal(packet.approval_status, "approval_id_placeholder_not_valid");
+  assert.equal(packet.approval_status, "owner_signed_receipt_required");
 });

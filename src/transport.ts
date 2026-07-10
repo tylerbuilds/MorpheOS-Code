@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import { HarnessError } from "./errors.js";
+import { classifyOutboundPayload } from "./privacy.js";
 import type { RunItem, RunManifest } from "./schema.js";
 
 export interface CompletionResult {
@@ -56,6 +58,14 @@ export class DeepSeekLiveTransport implements CompletionTransport {
 
   async complete(manifest: RunManifest, item: RunItem): Promise<CompletionResult> {
     const request = buildDeepSeekRequest(manifest, item);
+    const privacy = classifyOutboundPayload(item.id, request);
+    if (!privacy.external_deepseek_allowed) {
+      throw new HarnessError(
+        "outbound_privacy_check_failed",
+        "Exact outbound payload failed the privacy gate",
+        { findings: privacy.findings }
+      );
+    }
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
@@ -67,7 +77,21 @@ export class DeepSeekLiveTransport implements CompletionTransport {
 
     const raw = (await response.json().catch(() => null)) as Record<string, unknown> | null;
     if (!response.ok) {
-      throw new Error(`DeepSeek API error ${response.status}: ${JSON.stringify(raw)}`);
+      const providerError = raw?.error && typeof raw.error === "object"
+        ? raw.error as Record<string, unknown>
+        : {};
+      throw new HarnessError("deepseek_api_error", "DeepSeek API request failed", {
+        http_status: response.status,
+        provider_code: typeof providerError.code === "string" ? providerError.code.slice(0, 100) : null,
+        request_id: response.headers.get("x-request-id") ?? response.headers.get("request-id")
+      });
+    }
+
+    if (raw?.model !== manifest.model) {
+      throw new HarnessError("deepseek_response_model_mismatch", "DeepSeek response model did not match the approved model", {
+        expected_model: manifest.model,
+        observed_model: typeof raw?.model === "string" ? raw.model : null
+      });
     }
 
     const choices = raw?.choices as Array<{ message?: { content?: string } }> | undefined;

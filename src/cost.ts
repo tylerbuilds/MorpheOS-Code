@@ -8,6 +8,7 @@ export interface CostLedger {
   transport: string;
   model: string;
   cost_cap_usd: number;
+  budget_reservation: Record<string, unknown> | null;
   estimated_usage: ReturnType<typeof estimateManifestUsage>;
   observed_usage: {
     prompt_tokens: number;
@@ -27,7 +28,11 @@ export interface CostLedger {
   }>;
 }
 
-export function buildCostLedger(run: RunRecord, items: ItemRecord[]): CostLedger {
+export function buildCostLedger(
+  run: RunRecord,
+  items: ItemRecord[],
+  budgetReservation: Record<string, unknown> | null = null
+): CostLedger {
   const rows = items.map((item) => {
     const usage = normaliseUsage(item.usage);
     return {
@@ -55,6 +60,7 @@ export function buildCostLedger(run: RunRecord, items: ItemRecord[]): CostLedger
     transport: run.manifest.transport,
     model: run.manifest.model,
     cost_cap_usd: run.manifest.cost_cap_usd,
+    budget_reservation: budgetReservation,
     estimated_usage: estimateManifestUsage(run.manifest),
     observed_usage: {
       prompt_tokens: sumNumbers(rows.map((item) => item.prompt_tokens)),

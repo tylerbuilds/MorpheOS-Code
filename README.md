@@ -10,7 +10,7 @@ Core sprint status: `DSH-00` to `DSH-09` complete locally.
 - validates explicit run manifests;
 - stores runs, items and events in local SQLite;
 - supports fake and DeepSeek dry-run transports;
-- refuses live DeepSeek calls unless approval, egress, cost and side-effect gates pass;
+- refuses live DeepSeek calls unless a signed one-use receipt, egress, privacy, cost and side-effect gates pass;
 - exposes a CLI and MCP stdio server over the same service layer;
 - exports Agent OS readable state snapshots, Dispatch proposals and review packets;
 - includes a gated scale-ramp command for measured concurrency tests;
@@ -30,12 +30,17 @@ mutate GitHub, handle credentials, or approve its own output.
 Live DeepSeek calls require:
 
 - `egress_class: "non_sensitive_bulk"`;
-- a real `approval_id`, not a placeholder;
-- `cost_cap_usd`;
+- an owner-signed `approval_receipt` bound to the exact network payload, provider, model, egress and limits;
+- `max_tokens` plus per-run and accumulated daily cost ceilings;
 - `concurrency` within the local live cap;
 - `canonical_writes: false`;
 - `external_side_effects: false`;
 - `DEEPSEEK_API_KEY` present in the process environment.
+- `DEEPSEEK_HARNESS_APPROVAL_PUBLIC_KEY` present for signature verification.
+
+Free-form approval strings no longer authorise a live call. The harness stores a
+one-use consumption record and a budget reservation before transport; if usage
+is absent, the conservative reservation remains charged.
 
 Live scale ramps additionally require `--allow-live-scale`.
 
