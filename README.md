@@ -5,8 +5,6 @@ sidecar, not an approval system and not an Agent OS state writer.
 
 ## Status
 
-Core sprint status: `DSH-00` to `DSH-09` complete locally.
-
 - validates explicit run manifests;
 - stores runs, items and events in local SQLite;
 - supports fake and DeepSeek dry-run transports;
@@ -20,10 +18,6 @@ Core sprint status: `DSH-00` to `DSH-09` complete locally.
   books, local OCR, translation memory/QA, JSONL datasets, long-form authoring,
   ffprobe media catalogues, preflight planning, supervision, reconciliation and
   cancellation.
-
-The live proof on 2026-07-06 completed a non-sensitive DeepSeek V4 Flash
-scale ramp at 5, 10 and 20 concurrency. All three 40-item runs completed;
-the fastest measured leg was concurrency 20 at 15.86 items/second.
 
 ## Start here
 

@@ -104,6 +104,41 @@ test("rejects invalid overlap values", () => {
   );
 });
 
+test("blocks protected text and JSONL sources before reading their contents", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "deepseek-harness-corpus-ingest-"));
+  const protectedDir = path.join(root, ".ssh");
+  fs.mkdirSync(protectedDir);
+  const protectedText = path.join(protectedDir, "notes.txt");
+  const protectedJsonl = path.join(protectedDir, "records.jsonl");
+  const alias = path.join(root, "innocent-looking.txt");
+  fs.writeFileSync(protectedText, "private notes");
+  fs.writeFileSync(protectedJsonl, '{"private":true}\n');
+  fs.symlinkSync(protectedText, alias);
+
+  assertHarnessError(
+    () => buildTextCorpusManifest({
+      project: "unit-corpus-ingest",
+      sourcePath: alias,
+      workloadType: "book_reading",
+      privacyLane: "local_only",
+      chunkChars: 10,
+      overlapChars: 0
+    }),
+    "corpus_path_forbidden",
+    /forbidden/
+  );
+  assertHarnessError(
+    () => buildJsonlCorpusManifest({
+      project: "unit-jsonl-ingest",
+      sourcePath: protectedJsonl,
+      privacyLane: "local_only",
+      recordsPerShard: 1
+    }),
+    "corpus_path_forbidden",
+    /forbidden/
+  );
+});
+
 test("rejects text inputs that would manufacture more than 10,000 inline shards", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "deepseek-harness-corpus-ingest-"));
   const sourcePath = path.join(root, "source.txt");

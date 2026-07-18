@@ -57,7 +57,7 @@ test("e2e CLI runs fake batch, exports review packet, ledger and state", async (
   };
   assert.equal(ledger.ledger.observed_usage.items_with_usage, 2);
 
-  const statePath = path.join(root, "state.json");
+  const statePath = path.join(root, "artifacts", "state.json");
   const state = await runCli(root, ["state", "--output", statePath]) as {
     path: string;
     state: { runs: Array<{ run_id: string; status: string }> };
@@ -93,7 +93,7 @@ test("e2e MCP runs workload benchmark through stdio server", async () => {
     const tools = await client.listTools();
     assert.equal(tools.tools.some((tool) => tool.name === "deepseek_harness_workload_benchmark"), true);
 
-    const output = path.join(root, "mcp-workload-benchmark.json");
+    const output = path.join(root, "artifacts", "mcp-workload-benchmark.json");
     const response = await client.callTool({
       name: "deepseek_harness_workload_benchmark",
       arguments: {

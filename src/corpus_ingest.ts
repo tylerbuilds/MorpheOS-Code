@@ -3,6 +3,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { TextDecoder } from "node:util";
 import { HarnessError } from "./errors.js";
+import { assertSafeCorpusSourcePath } from "./paths.js";
 
 const JSONL_READ_CHUNK_BYTES = 64 * 1024;
 const MAX_JSONL_RECORD_BYTES = 16 * 1024 * 1024;
@@ -82,7 +83,7 @@ export interface TextCorpusManifest {
 
 export function buildTextCorpusManifest(input: BuildTextCorpusManifestInput): TextCorpusManifest {
   validateChunkOptions(input.chunkChars, input.overlapChars);
-  const sourcePath = path.resolve(input.sourcePath);
+  const sourcePath = assertSafeCorpusSourcePath(input.sourcePath);
   const sourceStat = fs.statSync(sourcePath);
   if (!sourceStat.isFile()) {
     throw new HarnessError("invalid_corpus_source", "Text corpus source must be a regular file");
@@ -130,7 +131,7 @@ export function buildJsonlCorpusManifest(input: BuildJsonlCorpusManifestInput): 
     throw new HarnessError("invalid_corpus_records_per_shard", "recordsPerShard must be a positive integer");
   }
 
-  const sourcePath = path.resolve(input.sourcePath);
+  const sourcePath = assertSafeCorpusSourcePath(input.sourcePath);
   const scan = scanJsonlFile(sourcePath, input.recordsPerShard);
   const sourceSha256 = scan.sourceSha256;
   const sourceId = `source:${sha256Text(`${sourcePath}\0${sourceSha256}`).slice(0, 16)}`;

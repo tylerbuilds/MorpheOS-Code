@@ -19,6 +19,12 @@ node dist/src/cli.js doctor
 The final command should return JSON with `"ok": true`. It also shows the
 local state and artefact directories the harness will use.
 
+Treat that artefact directory as the harness sandbox. CLI and MCP output
+arguments must stay beneath it, and corpus ingest rejects protected or
+credential-shaped local paths before reading them. Set
+`DEEPSEEK_HARNESS_ARTIFACT_DIR` at launch time if you need a different local
+volume; keep the documented `artifacts/...` paths in manifests and commands.
+
 Run the included fake example:
 
 ```bash

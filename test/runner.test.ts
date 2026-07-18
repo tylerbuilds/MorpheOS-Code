@@ -56,15 +56,32 @@ test("submits and runs fake batch with SQLite state", async () => {
   assert.equal(state.state.runs.length, 1);
 });
 
-test("blocks direct protected private-workspace state writes", () => {
+test("blocks output paths outside the configured artifact root", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "deepseek-harness-"));
   assert.throws(
     () =>
       exportHarnessState(
-        { stateDir: path.join(root, ".state") },
-        { output: "/Users/example/Documents/Obsidian/private-workspace-state/deepseek-harness.json" }
+        { stateDir: path.join(root, ".state"), artifactRoot: path.join(root, "artifacts") },
+        { output: path.join(root, "outside", "deepseek-harness.json") }
       ),
-    /protected private-workspace state/
+    /configured artifact root/
+  );
+});
+
+test("blocks an artifact-root symlink escape", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "deepseek-harness-"));
+  const artifactRoot = path.join(root, "artifacts");
+  const outside = path.join(root, "outside");
+  fs.mkdirSync(artifactRoot);
+  fs.mkdirSync(outside);
+  fs.symlinkSync(outside, path.join(artifactRoot, "escape"));
+
+  assert.throws(
+    () => exportHarnessState(
+      { stateDir: path.join(root, ".state"), artifactRoot },
+      { output: path.join(artifactRoot, "escape", "state.json") }
+    ),
+    /resolves outside the configured artifact root/
   );
 });
 
@@ -122,7 +139,7 @@ test("exports approval packet artefact", () => {
       external_side_effects: false,
       items: [{ id: "a", prompt: "hello" }]
     },
-    {},
+    { artifactRoot: root },
     { output }
   ) as { path: string };
 
@@ -148,7 +165,7 @@ test("runs local scale ramp and writes report", async () => {
     },
     {
       stateDir: path.join(root, ".state"),
-      artifactRoot: path.join(root, "artifacts")
+      artifactRoot: root
     },
     {
       concurrencies: [2, 4],

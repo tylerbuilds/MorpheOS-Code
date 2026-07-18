@@ -1,6 +1,3 @@
-import os from "node:os";
-import path from "node:path";
-
 export type EgressClass =
   | "non_sensitive_bulk"
   | "local_private"
@@ -75,14 +72,9 @@ const CLIENT_SIGNALS: Array<[RegExp, string]> = [
 
 const PRIVATE_ORIGIN_SIGNALS: Array<[RegExp, string]> = [
   [/(?:^|[/\\])\.env(?:\.|$)/i, "private_env_origin"],
-  [privateWorkspaceOriginPattern(), "private_workspace_origin"],
+  [/(?:\/Users\/[^/]+\/Documents\/Obsidian|\/private-workspace-state(?:\/|$))/i, "private_workspace_origin"],
   [/(?:client|customer)[-_ ]?(?:private|confidential)/i, "private_client_origin"]
 ];
-
-function privateWorkspaceOriginPattern(): RegExp {
-  const workspaceRoot = path.resolve(os.homedir(), "Documents", "Obsidian").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(?:${workspaceRoot}|/private-workspace-state(?:/|$))`, "i");
-}
 
 export function classifyManifestPrivacy(manifest: ManifestLike): PrivacyReport {
   const findings = manifest.items.flatMap((item) => {

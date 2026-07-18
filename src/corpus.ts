@@ -2453,8 +2453,11 @@ function classifyError(error: string): string {
 }
 
 function safeArtifactDir(value: string): string {
-  const resolved = path.resolve(value);
   const allowedRoot = path.resolve(defaultArtifactRoot());
+  const segments = value.split(/[\\/]+/).filter(Boolean);
+  const resolved = path.isAbsolute(value)
+    ? path.resolve(value)
+    : path.join(allowedRoot, ...(segments[0] === "artifacts" ? segments.slice(1) : segments));
   assertNotForbiddenPath(resolved);
   if (!isWithin(resolved, allowedRoot)) {
     throw new HarnessError("corpus_artifact_path_blocked", "Corpus artefacts must stay under DEEPSEEK_HARNESS_ARTIFACT_DIR");
