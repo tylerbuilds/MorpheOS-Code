@@ -49,6 +49,7 @@ test("blocks lexical and realpath escapes across every file-reading ingest adapt
     fs.writeFileSync(ocrPath, "outside image");
     fs.writeFileSync(path.join(inputRoot, "translation.txt"), "Inside translation source");
     fs.symlinkSync(bookPath, path.join(inputRoot, "book-link.txt"));
+    fs.linkSync(bookPath, path.join(inputRoot, "book-hard-link.txt"));
 
     withInputRoot(inputRoot, () => {
       assertHarnessCode(() => buildBookCorpusManifest({ project: "blocked-book", sourcePath: bookPath }), "corpus_input_path_blocked");
@@ -58,6 +59,7 @@ test("blocks lexical and realpath escapes across every file-reading ingest adapt
       assertHarnessCode(() => buildMediaCorpusManifest({ project: "blocked-media", sourcePath: mediaPath, privacyLane: "local_only" }), "corpus_input_path_blocked");
       assertHarnessCode(() => buildOcrCorpusManifest({ project: "blocked-ocr", sourcePath: ocrPath }), "corpus_input_path_blocked");
       assertHarnessCode(() => buildBookCorpusManifest({ project: "blocked-symlink", sourcePath: "book-link.txt" }), "corpus_input_path_blocked");
+      assertHarnessCode(() => buildBookCorpusManifest({ project: "blocked-hard-link", sourcePath: "book-hard-link.txt" }), "corpus_input_path_blocked");
       assertHarnessCode(
         () => buildBookCorpusManifest({ project: "blocked-lexical", sourcePath: path.join("..", path.basename(outsideRoot), "book.txt") }),
         "corpus_input_path_blocked"

@@ -71,10 +71,18 @@ export function assertSafeCorpusSourcePath(
     escapeCode: "corpus_input_path_blocked",
     escapeMessage: "Corpus input resolves outside DEEPSEEK_HARNESS_INPUT_ROOT"
   });
+  const safePath = realPath ?? resolved;
   if (realPath !== undefined) {
     assertSafeSourcePath(realPath);
+    const sourceStats = fs.statSync(safePath);
+    if (sourceStats.isFile() && sourceStats.nlink > 1) {
+      throw new HarnessError(
+        "corpus_input_path_blocked",
+        "Corpus input must not be a hard-linked regular file"
+      );
+    }
   }
-  return realPath ?? resolved;
+  return safePath;
 }
 
 /** Resolve an untrusted output argument beneath a trusted artefact root. */
