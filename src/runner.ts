@@ -8,7 +8,8 @@ import {
   defaultArtifactRoot,
   defaultCorpusInputRoot,
   defaultStateDir,
-  resolveArtifactOutputPath
+  resolveArtifactOutputPath,
+  writeArtifactOutput
 } from "./paths.js";
 import { classifyManifestPrivacy } from "./privacy.js";
 import { HarnessStore, type ItemRecord } from "./store.js";
@@ -200,7 +201,7 @@ export async function submitManifest(
     const artifactDir = resolveArtifactOutputPath(artifactRoot, resolveRunArtifactDirectory(artifactRoot, manifest.artifact_dir, runId));
     const manifestWithRunId: RunManifest = { ...manifest, run_id: runId, artifact_dir: artifactDir };
     store.createRun(runId, manifestWithRunId, artifactDir);
-    fs.writeFileSync(path.join(artifactDir, "manifest.json"), JSON.stringify(redactReceiptForArtifact(manifestWithRunId), null, 2));
+    writeArtifactOutput(artifactDir, path.join(artifactDir, "manifest.json"), JSON.stringify(redactReceiptForArtifact(manifestWithRunId), null, 2));
 
     if (options.start) {
       await processRun(runId, context, { allowLive: options.allowLive });
@@ -353,9 +354,8 @@ export function exportReviewPacket(runId: string, context: HarnessContext = {}):
       items
     };
     const packetPath = resolveArtifactOutputPath(run.artifact_dir, path.join(run.artifact_dir, "review-packet.json"));
-    fs.mkdirSync(run.artifact_dir, { recursive: true });
-    fs.writeFileSync(packetPath, JSON.stringify(packet, null, 2));
-    return { ok: true, path: packetPath, packet };
+    const writtenPacketPath = writeArtifactOutput(run.artifact_dir, packetPath, JSON.stringify(packet, null, 2));
+    return { ok: true, path: writtenPacketPath, packet };
   } finally {
     store.close();
   }
@@ -399,9 +399,8 @@ export function exportHarnessState(
   );
 
   const state = harnessState(context, { limit: options.limit });
-  fs.mkdirSync(path.dirname(output), { recursive: true });
-  fs.writeFileSync(output, JSON.stringify(state, null, 2));
-  return { ok: true, path: output, state };
+  const writtenOutput = writeArtifactOutput(artifactRoot, output, JSON.stringify(state, null, 2));
+  return { ok: true, path: writtenOutput, state };
 }
 
 export function dispatchProposal(input: unknown, options: { allowLive?: boolean } = {}): Record<string, unknown> {
@@ -533,9 +532,8 @@ export function exportApprovalPacket(
     options.output ?? path.join(artifactRoot, `${project}-approval-packet.json`)
   );
 
-  fs.mkdirSync(path.dirname(output), { recursive: true });
-  fs.writeFileSync(output, JSON.stringify(packet, null, 2));
-  return { ok: true, path: output, packet };
+  const writtenOutput = writeArtifactOutput(artifactRoot, output, JSON.stringify(packet, null, 2));
+  return { ok: true, path: writtenOutput, packet };
 }
 
 export function privacyCheck(input: unknown): Record<string, unknown> {
@@ -570,9 +568,8 @@ export function exportCostLedger(
       options.output ?? path.join(run.artifact_dir, "cost-ledger.json")
     );
 
-    fs.mkdirSync(path.dirname(output), { recursive: true });
-    fs.writeFileSync(output, JSON.stringify(ledger, null, 2));
-    return { ok: true, path: output, ledger };
+    const writtenOutput = writeArtifactOutput(run.artifact_dir, output, JSON.stringify(ledger, null, 2));
+    return { ok: true, path: writtenOutput, ledger };
   } finally {
     store.close();
   }
@@ -794,9 +791,8 @@ export async function scaleRamp(
     runs
   };
 
-  fs.mkdirSync(path.dirname(output), { recursive: true });
-  fs.writeFileSync(output, JSON.stringify(report, null, 2));
-  return { ok: true, path: output, report };
+  const writtenOutput = writeArtifactOutput(artifactRoot, output, JSON.stringify(report, null, 2));
+  return { ok: true, path: writtenOutput, report };
 }
 
 async function processItem(
@@ -852,13 +848,9 @@ function writeResultArtifacts(store: HarnessStore, runId: string): void {
   const run = store.getRun(runId);
   const items = store.listItems(runId);
   const costLedger = buildCostLedger(run, items, store.budgetStatus(runId));
-  fs.mkdirSync(run.artifact_dir, { recursive: true });
-  fs.writeFileSync(resolveArtifactOutputPath(run.artifact_dir, path.join(run.artifact_dir, "summary.json")), JSON.stringify(store.summary(runId), null, 2));
-  fs.writeFileSync(resolveArtifactOutputPath(run.artifact_dir, path.join(run.artifact_dir, "cost-ledger.json")), JSON.stringify(costLedger, null, 2));
-  fs.writeFileSync(
-    resolveArtifactOutputPath(run.artifact_dir, path.join(run.artifact_dir, "results.jsonl")),
-    items.map((item) => JSON.stringify(item)).join("\n") + "\n"
-  );
+  writeArtifactOutput(run.artifact_dir, path.join(run.artifact_dir, "summary.json"), JSON.stringify(store.summary(runId), null, 2));
+  writeArtifactOutput(run.artifact_dir, path.join(run.artifact_dir, "cost-ledger.json"), JSON.stringify(costLedger, null, 2));
+  writeArtifactOutput(run.artifact_dir, path.join(run.artifact_dir, "results.jsonl"), items.map((item) => JSON.stringify(item)).join("\n") + "\n");
 }
 
 function injectedFailureMessage(manifest: RunManifest, item: RunItem): string | null {
@@ -881,10 +873,7 @@ function injectedFailureMessage(manifest: RunManifest, item: RunItem): string | 
 }
 
 function writeMacroReport(output: string, report: unknown, artifactRoot: string): string {
-  const resolved = resolveArtifactOutputPath(artifactRoot, output);
-  fs.mkdirSync(path.dirname(resolved), { recursive: true });
-  fs.writeFileSync(resolved, JSON.stringify(report, null, 2));
-  return resolved;
+  return writeArtifactOutput(artifactRoot, output, JSON.stringify(report, null, 2));
 }
 
 function resolveRunArtifactDirectory(artifactRoot: string, requested: string | undefined, runId: string): string {

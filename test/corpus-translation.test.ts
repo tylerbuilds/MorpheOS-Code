@@ -133,7 +133,7 @@ test("reads UTF-8 source files and rejects malformed glossary JSON safely", () =
     glossaryPath,
     chunkChars: 100
   });
-  assert.equal(manifest.sources[0]?.path, path.resolve(sourcePath));
+  assert.equal(manifest.sources[0]?.path, fs.realpathSync(sourcePath));
   assert.deepEqual(manifest.acceptance.translation.glossary, { café: "coffee" });
 });
 

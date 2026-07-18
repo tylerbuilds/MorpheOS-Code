@@ -113,7 +113,7 @@ function validateMediaCatalogueRecord(record: ValidationRecord, requireProvenanc
 }
 
 function validateTranslationRecord(record: ValidationRecord, requireProvenance: boolean): string[] {
-  if (!hasTranslationBounds(record.record)) {
+  if (!requireProvenance && !hasTranslationBounds(record.record)) {
     return [];
   }
 

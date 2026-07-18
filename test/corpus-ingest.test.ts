@@ -36,7 +36,7 @@ test("builds deterministic overlapping inline-text corpus shards", () => {
   assert.deepEqual(rebuilt, manifest);
   assert.equal(manifest.schema_version, "deepseek-harness.corpus.v1");
   assert.equal(manifest.sources.length, 1);
-  assert.equal(manifest.sources[0]?.path, sourcePath);
+  assert.equal(manifest.sources[0]?.path, fs.realpathSync(sourcePath));
   assert.match(manifest.sources[0]?.sha256 ?? "", /^[a-f0-9]{64}$/);
   assert.deepEqual(
     manifest.shards.map((shard) => shard.inline_text),
@@ -235,7 +235,7 @@ test("builds deterministic file-backed JSONL shards with exact raw-byte and row 
   const fd = fs.openSync(sourcePath, "r");
   try {
     for (const [index, shard] of manifest.shards.entries()) {
-      assert.equal(shard.input_path, sourcePath);
+      assert.equal(shard.input_path, fs.realpathSync(sourcePath));
       assert.equal("inline_text" in shard, false);
       assert.deepEqual(
         [shard.bounds.byte_start, shard.bounds.byte_end],

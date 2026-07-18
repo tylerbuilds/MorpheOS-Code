@@ -7,6 +7,7 @@ import {
   corpusPlan,
   corpusReconcile,
   corpusStart,
+  corpusStartAsync,
   corpusValidate
 } from "../src/corpus.js";
 
@@ -103,6 +104,38 @@ for (const scenario of invalidWorkloadScenarios) {
   });
 }
 
+test("translation contract requires language and hash provenance on every shard", async () => {
+  await withArtifactRoot(async (artifactRoot) => {
+    const digest = "a".repeat(64);
+    const manifest = {
+      schema_version: "deepseek-harness.corpus.v1",
+      job_id: "translation-missing-provenance",
+      project: "invalid-translation-provenance",
+      workload_type: "translation",
+      privacy_lane: "local_only",
+      artifact_dir: path.join(artifactRoot, "corpus", "translation-missing-provenance"),
+      processor: {
+        type: "deepseek_batch",
+        transport: "fake",
+        prompt_template: "Translate {{text}}"
+      },
+      sources: [{ id: "source", type: "text", sha256: digest }],
+      shards: [{ id: "chunk-1", source_id: "source", inline_text: "Bonjour" }],
+      acceptance: {
+        translation: { source_lang: "fr", target_lang: "en", preserve_placeholders: true }
+      }
+    };
+
+    const planned = corpusPlan(manifest);
+    const blockers = planned.blockers as string[];
+    assert.equal(blockers.includes("translation_missing_source_lang:chunk-1"), true);
+    assert.equal(blockers.includes("translation_missing_target_lang:chunk-1"), true);
+    assert.equal(blockers.includes("translation_missing_source_sha256:chunk-1"), true);
+    assert.equal(blockers.includes("translation_missing_shard_sha256:chunk-1"), true);
+    await assert.rejects(() => corpusStartAsync(manifest), /Corpus workload contract failed/);
+  });
+});
+
 function prepareLegacyJob(
   scenario: InvalidWorkloadScenario,
   jobId: string,
@@ -113,13 +146,13 @@ function prepareLegacyJob(
   fs.writeFileSync(path.join(artifactDir, "manifest.json"), JSON.stringify(invalidManifest, null, 2));
 }
 
-function withArtifactRoot(run: (artifactRoot: string) => void): void {
+async function withArtifactRoot(run: (artifactRoot: string) => void | Promise<void>): Promise<void> {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "deepseek-harness-workload-contract-"));
   const artifactRoot = path.join(root, "artifacts");
   const previousArtifactRoot = process.env.DEEPSEEK_HARNESS_ARTIFACT_DIR;
   process.env.DEEPSEEK_HARNESS_ARTIFACT_DIR = artifactRoot;
   try {
-    run(artifactRoot);
+    await run(artifactRoot);
   } finally {
     if (previousArtifactRoot === undefined) {
       delete process.env.DEEPSEEK_HARNESS_ARTIFACT_DIR;

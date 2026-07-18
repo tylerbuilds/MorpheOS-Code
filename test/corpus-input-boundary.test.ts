@@ -23,8 +23,8 @@ test("uses the configured input root for legitimate relative book and longform i
     withInputRoot(inputRoot, () => {
       const book = buildBookCorpusManifest({ project: "book-safe", sourcePath: "book.txt" });
       const longform = buildLongformCorpusManifest({ project: "longform-safe", outlinePath: "outline.json" });
-      assert.equal(book.sources[0].path, path.join(inputRoot, "book.txt"));
-      assert.equal(longform.sources[0].path, path.join(inputRoot, "outline.json"));
+      assert.equal(book.sources[0].path, fs.realpathSync(path.join(inputRoot, "book.txt")));
+      assert.equal(longform.sources[0].path, fs.realpathSync(path.join(inputRoot, "outline.json")));
     });
   } finally {
     fs.rmSync(inputRoot, { recursive: true, force: true });
@@ -120,6 +120,22 @@ test("confines direct corpus manifests before an MCP plan can inspect a source",
   } finally {
     fs.rmSync(inputRoot, { recursive: true, force: true });
     fs.rmSync(outsideRoot, { recursive: true, force: true });
+  }
+});
+
+test("rejects a configured input root that resolves to the filesystem root", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "deepseek-harness-input-root-"));
+  const rootLink = path.join(root, "filesystem-root");
+  fs.symlinkSync(path.parse(root).root, rootLink);
+  try {
+    withInputRoot(rootLink, () => {
+      assertHarnessCode(
+        () => buildBookCorpusManifest({ project: "blocked-root-link", sourcePath: "README.md" }),
+        "corpus_input_root_invalid"
+      );
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });
 

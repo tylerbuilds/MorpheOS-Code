@@ -44,7 +44,7 @@ test("builds deterministic sorted media catalogue shards from ffprobe JSON", med
     assert.equal(manifest.shards.length, 2);
     assert.deepEqual(
       manifest.sources.map((source) => source.path),
-      [path.resolve(root, "a-first.wav"), path.resolve(root, "z-last.wav")]
+      [fs.realpathSync(path.join(root, "a-first.wav")), fs.realpathSync(path.join(root, "z-last.wav"))]
     );
     const workloadContract = {
       workload_type: manifest.workload_type,

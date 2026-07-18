@@ -48,6 +48,9 @@ export function assertSafeCorpusSourcePath(
   } catch {
     throw new HarnessError("corpus_input_root_invalid", "Configured corpus input root must be an existing directory");
   }
+  if (realRoot === path.parse(realRoot).root) {
+    throw new HarnessError("corpus_input_root_invalid", "Corpus input root must be narrower than the filesystem root");
+  }
 
   const resolved = path.isAbsolute(candidate)
     ? path.resolve(candidate)
@@ -70,7 +73,7 @@ export function assertSafeCorpusSourcePath(
   if (realPath !== undefined) {
     assertSafeSourcePath(realPath);
   }
-  return resolved;
+  return realPath ?? resolved;
 }
 
 /** Resolve an untrusted output argument beneath a trusted artefact root. */
@@ -94,6 +97,53 @@ export function resolveArtifactOutputPath(artifactRoot: string, candidate: strin
     escapeMessage: "Harness output resolves outside the configured artifact root"
   });
   return output;
+}
+
+export function writeArtifactOutput(
+  artifactRoot: string,
+  candidate: string,
+  body: string | NodeJS.ArrayBufferView
+): string {
+  const output = resolveArtifactOutputPath(artifactRoot, candidate);
+  const root = path.resolve(artifactRoot);
+  const parent = path.dirname(output);
+  let realRoot: string;
+  let realParent: string;
+  try {
+    fs.mkdirSync(parent, { recursive: true });
+    realRoot = fs.realpathSync(root);
+    realParent = fs.realpathSync(parent);
+  } catch {
+    throw new HarnessError("artifact_output_path_blocked", "Configured artifact output directory is not writable");
+  }
+  if (!isWithin(realParent, realRoot)) {
+    throw new HarnessError("artifact_output_path_blocked", "Harness output resolves outside the configured artifact root");
+  }
+
+  const finalPath = path.join(realParent, path.basename(output));
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(
+      finalPath,
+      fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | fs.constants.O_NOFOLLOW,
+      0o600
+    );
+    if (!fs.fstatSync(fd).isFile()) {
+      throw new HarnessError("artifact_output_path_blocked", "Harness output must be a regular file");
+    }
+    fs.writeFileSync(fd, body);
+    fs.fsyncSync(fd);
+    return output;
+  } catch (error) {
+    if (error instanceof HarnessError) {
+      throw error;
+    }
+    throw new HarnessError("artifact_output_path_blocked", "Harness output path could not be opened safely");
+  } finally {
+    if (fd !== undefined) {
+      fs.closeSync(fd);
+    }
+  }
 }
 
 function assertSafeSourcePath(filePath: string): void {

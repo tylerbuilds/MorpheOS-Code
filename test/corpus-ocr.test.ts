@@ -58,9 +58,9 @@ test("builds a deterministic image OCR manifest with corpus-v1 bounds", () => {
   assert.equal(manifest.workload_type, "ocr");
   assert.deepEqual(manifest.processor, { type: "local_ocr", engine: "auto", language: "en-US" });
   assert.equal(manifest.sources[0]?.type, "image");
-  assert.equal(manifest.sources[0]?.path, path.resolve(inputPath));
+  assert.equal(manifest.sources[0]?.path, fs.realpathSync(inputPath));
   assert.equal(manifest.shards.length, 1);
-  assert.equal(manifest.shards[0]?.input_path, path.resolve(inputPath));
+  assert.equal(manifest.shards[0]?.input_path, fs.realpathSync(inputPath));
   assert.deepEqual(manifest.shards[0]?.bounds, { page_number: 1, page_start: 1, page_end: 1, page_count: 1 });
 });
 

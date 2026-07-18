@@ -85,6 +85,25 @@ test("blocks an artifact-root symlink escape", () => {
   );
 });
 
+test("refuses a final output symlink even when its target stays in the artifact root", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "deepseek-harness-"));
+  const artifactRoot = path.join(root, "artifacts");
+  const target = path.join(artifactRoot, "target.json");
+  const output = path.join(artifactRoot, "linked.json");
+  fs.mkdirSync(artifactRoot);
+  fs.writeFileSync(target, "existing target");
+  fs.symlinkSync(target, output);
+
+  assert.throws(
+    () => exportHarnessState(
+      { stateDir: path.join(root, ".state"), artifactRoot },
+      { output }
+    ),
+    /could not be opened safely/
+  );
+  assert.equal(fs.readFileSync(target, "utf8"), "existing target");
+});
+
 test("builds no-secret MCP config snippets", () => {
   const command = "/tmp/deepseek-harness-mcp";
   const stateDir = "/tmp/deepseek-harness-state";
