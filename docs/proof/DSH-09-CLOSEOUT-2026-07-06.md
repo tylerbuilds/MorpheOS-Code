@@ -70,12 +70,12 @@ harness runtime authority.
 
 ## Final Proof Commands
 
-Run from `/Users/tyler/Code/control-plane/deepseek-harness` on 2026-07-06:
+Run from `<repository-root>` on 2026-07-06:
 
 ```bash
 npm run typecheck
 npm test
-agent-os-repo-proof --repo /Users/tyler/Code/control-plane/deepseek-harness --level quick --run --json
+agent-os-repo-proof --repo <repository-root> --level quick --run --json
 git diff --check
 node dist/src/cli.js state --output artifacts/deepseek-harness-state-final.json --limit 12
 ```

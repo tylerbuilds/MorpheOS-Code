@@ -40,7 +40,7 @@ npm test
 npm run mcp:smoke
 bash scripts/install-local.sh --install-dir "$HOME/bin" --force --print-config
 npm run mcp:smoke -- --command "$HOME/bin/deepseek-harness-mcp"
-agent-os-repo-proof --repo /Users/tyler/Code/control-plane/deepseek-harness --level quick --run --json
+agent-os-repo-proof --repo <repository-root> --level quick --run --json
 git diff --check
 ```
 
@@ -50,12 +50,12 @@ Ready for local MCP use.
 
 Installed locally on the operator machine:
 
-- `/Users/tyler/bin/deepseek-harness`
-- `/Users/tyler/bin/deepseek-harness-mcp`
-- `/Users/tyler/.config/deepseek-harness/mcp-server.json`
-- `/Users/tyler/.config/deepseek-harness/codex-mcp-server.toml`
+- `$HOME/bin/deepseek-harness`
+- `$HOME/bin/deepseek-harness-mcp`
+- `$HOME/.config/deepseek-harness/mcp-server.json`
+- `$HOME/.config/deepseek-harness/codex-mcp-server.toml`
 
-The Codex MCP entry was added to `/Users/tyler/.codex/config.toml` using the
+The Codex MCP entry was added to `$HOME/.codex/config.toml` using the
 same no-secret state/artifact environment as the generated TOML snippet.
 
 Proof run on 2026-07-06:
@@ -63,11 +63,11 @@ Proof run on 2026-07-06:
 - `npm run typecheck`: pass
 - `npm test`: pass, 12/12 tests
 - `npm run mcp:smoke`: pass, 12 MCP tools listed and `doctor` ok
-- `bash scripts/install-local.sh --install-dir /Users/tyler/bin --force --print-config`: pass
-- `npm run mcp:smoke -- --command /Users/tyler/bin/deepseek-harness-mcp`: pass
+- `bash scripts/install-local.sh --install-dir $HOME/bin --force --print-config`: pass
+- `npm run mcp:smoke -- --command $HOME/bin/deepseek-harness-mcp`: pass
 - `npm audit --audit-level=high`: pass, 0 vulnerabilities
 - `cargo test`: pass, 3/3 tests
-- `agent-os-repo-proof --repo /Users/tyler/Code/control-plane/deepseek-harness --level quick --run --json`: pass
+- `agent-os-repo-proof --repo <repository-root> --level quick --run --json`: pass
 - `git diff --check`: pass
 - tracked-file secret/path scan for state, artifacts, env files and common token patterns: pass
 

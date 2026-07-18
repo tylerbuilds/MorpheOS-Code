@@ -1,7 +1,27 @@
 {
-  "name": "@tyler/deepseek-harness",
-  "version": "0.1.0",
+  "name": "deepseek-harness",
+  "version": "0.0.1",
+  "description": "Local-first, safety-gated CLI and MCP harness for bounded DeepSeek batch and corpus workloads.",
   "private": true,
+  "license": "MIT",
+  "author": "DeepSeek Harness contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tylerbuilds/deepseek-harness.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tylerbuilds/deepseek-harness/issues"
+  },
+  "homepage": "https://github.com/tylerbuilds/deepseek-harness#readme",
+  "keywords": [
+    "deepseek",
+    "mcp",
+    "llm",
+    "batch-processing",
+    "ocr",
+    "translation",
+    "local-first"
+  ],
   "type": "module",
   "bin": {
     "deepseek-harness": "./dist/src/cli.js",
@@ -16,7 +36,8 @@
     "install:local": "bash scripts/install-local.sh",
     "mcp:config": "node dist/src/cli.js mcp-config",
     "mcp:config:codex": "node dist/src/cli.js mcp-config --format codex-toml",
-    "mcp:smoke": "node scripts/smoke-mcp.mjs"
+    "mcp:smoke": "node scripts/smoke-mcp.mjs",
+    "pack:check": "npm run build && node scripts/check-package-contents.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.18.2",
@@ -28,5 +49,16 @@
   },
   "engines": {
     "node": ">=24"
-  }
+  },
+  "files": [
+    "dist/",
+    "examples/",
+    "scripts/install-local.sh",
+    "scripts/smoke-mcp.mjs",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md",
+    "docs/user-guide.md",
+    "docs/corpus-heavy-workloads.md"
+  ]
 }

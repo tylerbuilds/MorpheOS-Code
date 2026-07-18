@@ -27,7 +27,7 @@ Status: implemented locally on branch `codex/dsh-batch-1-8`.
 - `npm audit --audit-level=high`: pass, 0 vulnerabilities.
 - `cargo test`: pass, 3/3 Rust worker tests.
 - `git diff --check`: pass.
-- `agent-os-repo-proof --repo /Users/tyler/Code/control-plane/deepseek-harness-dsh-batch-1-8 --level quick --run --json`: pass.
+- `agent-os-repo-proof --repo <repository-root> --level quick --run --json`: pass.
 - Public-safety keyword scan over changed source/docs/examples/tests/scripts: expected key-label references only; no raw secret value found.
 
 ## Side Effects

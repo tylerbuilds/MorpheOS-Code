@@ -1,6 +1,6 @@
 id: deepseek-harness
-repo_path: /Users/tyler/Code/control-plane/deepseek-harness
-owner: CommandCentreOps
+repo_path: .
+owner: local_operator
 service_class: engineering_harness
 deploy_class: local_only
 release_target: local_tool_or_cli

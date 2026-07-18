@@ -33,6 +33,16 @@ npm run mcp:smoke -- --command "$HOME/bin/deepseek-harness-mcp"
 
 The default example uses `transport: "fake"` and does not call DeepSeek.
 
+## Heavy Corpus Route
+
+Use `docs/corpus-heavy-workloads.md` for whole books, PDF/image OCR,
+translations with reviewed local memory, JSONL datasets, long-form sections,
+media catalogues and the bounded supervisor. The persistent launchd example is
+checked in but is not installed automatically. Its default worker defers live
+DeepSeek ledgers without changing them; persistent live authority is not
+supported. Live corpus work runs directly as one separately signed bounded
+batch.
+
 ## Rust Worker
 
 The Rust worker is an execution-core experiment behind the TypeScript CLI/MCP

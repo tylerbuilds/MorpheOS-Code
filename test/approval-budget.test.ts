@@ -262,6 +262,22 @@ test("live transport rescans outbound payload and sanitises provider errors", as
   }
 });
 
+test("live transport aborts a hung provider request at the configured deadline", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async (_input, init) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("timed out", "TimeoutError")), { once: true });
+    });
+    const manifest = baseManifest();
+    await assert.rejects(
+      () => new DeepSeekLiveTransport("not-a-real-key", "https://unused.invalid", 5).complete(manifest, manifest.items[0]),
+      (error: unknown) => error instanceof HarnessError && error.code === "deepseek_request_timeout"
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("mocked live lifecycle consumes one receipt and reconciles observed usage", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "deepseek-live-lifecycle-"));
   const originalFetch = globalThis.fetch;

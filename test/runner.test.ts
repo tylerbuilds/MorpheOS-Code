@@ -62,7 +62,7 @@ test("blocks direct Command Centre state writes", () => {
     () =>
       exportHarnessState(
         { stateDir: path.join(root, ".state") },
-        { output: "/Users/tyler/Documents/Obsidian/Command Centre/_state/deepseek-harness.json" }
+        { output: "/Users/example/Documents/Obsidian/Command Centre/_state/deepseek-harness.json" }
       ),
     /Command Centre\/_state/
   );

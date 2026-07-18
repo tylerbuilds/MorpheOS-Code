@@ -63,7 +63,7 @@ Closeout requires:
 
 - `npm run typecheck`;
 - `npm test`;
-- `agent-os-repo-proof --repo /Users/tyler/Code/control-plane/deepseek-harness --level quick --run --json`;
+- `agent-os-repo-proof --repo <repository-root> --level quick --run --json`;
 - `git diff --check`;
 - final state export under `artifacts/`;
 - source docs committed without ignored artefacts or secrets.
