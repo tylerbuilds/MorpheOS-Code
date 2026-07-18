@@ -1,0 +1,159 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to verify and publish (for example v0.1.0)"
+        required: true
+        default: v0.1.0
+        type: string
+      publish_npm:
+        description: "Publish the exact checked tarball to npm after GitHub Release upload"
+        required: true
+        default: false
+        type: boolean
+
+permissions: {}
+
+jobs:
+  verify:
+    name: Verify release candidate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: npm
+      - name: Verify tag and package version match
+        run: |
+          set -euo pipefail
+          package_version="$(node -p "JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')).version")"
+          tag_at_head="$(git tag --points-at HEAD | grep -Fx "$RELEASE_TAG" || true)"
+          test "$RELEASE_TAG" = "v$package_version"
+          test "$tag_at_head" = "$RELEASE_TAG"
+          printf 'release_tag=%s\npackage_version=%s\n' "$RELEASE_TAG" "$package_version"
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: node scripts/check-version-consistency.mjs
+      - run: npm run test:e2e
+      - run: npm run mcp:smoke
+      - run: npm run pack:check
+      - run: npm audit --audit-level=high
+      - run: cargo test --locked
+      - name: Capture npm pack boundary proof
+        run: |
+          set -euo pipefail
+          npm pack --dry-run --json > npm-pack-boundary.json
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+
+          const report = JSON.parse(readFileSync("npm-pack-boundary.json", "utf8"));
+          const files = new Set(report[0]?.files?.map((entry) => entry.path) ?? []);
+          const required = [
+            "dist/src/cli.js",
+            "dist/src/mcp.js",
+            "dist/src/product.js",
+            "dist/package.json",
+            "scripts/ocr-vision.swift"
+          ];
+          const missing = required.filter((file) => !files.has(file));
+          if (missing.length > 0) {
+            throw new Error(`npm pack boundary is missing: ${missing.join(", ")}`);
+          }
+          console.log(JSON.stringify({ ok: true, package_version: report[0]?.version, file_count: files.size, required }, null, 2));
+          NODE
+
+  publish:
+    name: Publish to npm
+    needs: verify
+    runs-on: ubuntu-latest
+    environment:
+      name: release
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: npm
+      - name: Recheck tag and package version match
+        run: |
+          set -euo pipefail
+          package_version="$(node -p "JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')).version")"
+          tag_at_head="$(git tag --points-at HEAD | grep -Fx "$RELEASE_TAG" || true)"
+          test "$RELEASE_TAG" = "v$package_version"
+          test "$tag_at_head" = "$RELEASE_TAG"
+      - run: npm ci
+      - name: Build one exact npm tarball and checksum
+        id: package
+        env:
+          PACKAGE_DIR: ${{ runner.temp }}/deepseek-harness-release-package
+        run: |
+          set -euo pipefail
+          mkdir -p "$PACKAGE_DIR"
+          npm pack --json --pack-destination "$PACKAGE_DIR" > "$PACKAGE_DIR/pack.json"
+          export PACK_REPORT="$PACKAGE_DIR/pack.json"
+          tarball_name="$(node --input-type=module -e 'import { readFileSync } from "node:fs"; const entries = JSON.parse(readFileSync(process.env.PACK_REPORT, "utf8")); if (entries.length !== 1 || typeof entries[0]?.filename !== "string") throw new Error("npm pack did not produce one exact tarball"); process.stdout.write(entries[0].filename);')"
+          tarball="$PACKAGE_DIR/$tarball_name"
+          test -f "$tarball"
+          checksum="$PACKAGE_DIR/$tarball_name.sha256"
+          (cd "$PACKAGE_DIR" && sha256sum "$tarball_name" > "$tarball_name.sha256" && sha256sum -c "$tarball_name.sha256")
+          printf 'tarball=%s\nchecksum=%s\n' "$tarball" "$checksum" >> "$GITHUB_OUTPUT"
+          printf 'tarball=%s\n' "$tarball"
+          cat "$checksum"
+      - name: Run installed-package smoke on the exact tarball
+        env:
+          TARBALL: ${{ steps.package.outputs.tarball }}
+          SMOKE_ROOT: ${{ runner.temp }}/deepseek-harness-installed-package
+        run: |
+          set -euo pipefail
+          mkdir -p "$SMOKE_ROOT/consumer" "$SMOKE_ROOT/state" "$SMOKE_ROOT/artifacts"
+          unset DEEPSEEK_API_KEY DEEPSEEK_HARNESS_APPROVAL_PUBLIC_KEY
+          npm install --global --prefix "$SMOKE_ROOT/prefix" "$TARBALL"
+          cli="$SMOKE_ROOT/prefix/bin/deepseek-harness"
+          mcp="$SMOKE_ROOT/prefix/bin/deepseek-harness-mcp"
+          package_root="$SMOKE_ROOT/prefix/lib/node_modules/deepseek-harness"
+          export DEEPSEEK_HARNESS_STATE_DIR="$SMOKE_ROOT/state"
+          export DEEPSEEK_HARNESS_ARTIFACT_DIR="$SMOKE_ROOT/artifacts"
+          export DEEPSEEK_HARNESS_INPUT_ROOT="$SMOKE_ROOT/consumer"
+          package_version="$(node -p "JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')).version")"
+          test "$("$cli" --version)" = "$package_version"
+          "$cli" --help | grep -Fq "deepseek-harness quickstart"
+          test -f "$package_root/dist/package.json"
+          test -f "$package_root/scripts/ocr-vision.swift"
+          "$cli" doctor > "$SMOKE_ROOT/doctor.json"
+          node --input-type=module -e 'import { readFileSync } from "node:fs"; const value = JSON.parse(readFileSync(process.argv[1], "utf8")); if (!value.ok || !value.cli?.source_entrypoint || !value.cli?.mcp_entrypoint) throw new Error("installed doctor did not prove entrypoints");' "$SMOKE_ROOT/doctor.json"
+          "$cli" quickstart --output "$SMOKE_ROOT/artifacts/package-quickstart.json" > "$SMOKE_ROOT/quickstart.json"
+          node --input-type=module -e 'import { readFileSync } from "node:fs"; const value = JSON.parse(readFileSync(process.argv[1], "utf8")); if (!value.ok || value.network_calls !== 0) throw new Error("installed quickstart was not a zero-network proof");' "$SMOKE_ROOT/quickstart.json"
+          node scripts/smoke-mcp.mjs --command "$mcp" --profile core
+      - name: Attach tarball and checksum to the matching GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARBALL: ${{ steps.package.outputs.tarball }}
+          CHECKSUM: ${{ steps.package.outputs.checksum }}
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+          gh release upload "$RELEASE_TAG" "$TARBALL" "$CHECKSUM" --repo "$GITHUB_REPOSITORY" --clobber
+      - name: Publish the exact tarball to npm with trusted publishing
+        if: ${{ inputs.publish_npm }}
+        env:
+          TARBALL: ${{ steps.package.outputs.tarball }}
+        run: npm publish "$TARBALL" --provenance --access public

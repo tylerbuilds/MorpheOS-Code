@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from "node:fs";
+import packageMetadata from "../package.json" with { type: "json" };
 import {
   agentCanary,
   cancelRun,
@@ -20,6 +21,7 @@ import {
   planManifest,
   privacyCheck,
   processRun,
+  quickstart,
   scaleRamp,
   submitManifest,
   workloadBenchmark
@@ -43,7 +45,8 @@ import { buildMediaCorpusManifest } from "./corpus_media.js";
 import { buildOcrCorpusManifest, type OcrEngine } from "./corpus_ocr.js";
 import { corpusSupervisorAsync } from "./corpus_supervisor.js";
 import { buildTranslationCorpusManifest, type TranslationTransport } from "./corpus_translation.js";
-import { toErrorPayload } from "./errors.js";
+import { errorExitCode, toErrorPayload, usageError } from "./errors.js";
+import { parseMcpProfile, productCapabilities, type McpProfile } from "./product.js";
 
 interface ParsedArgs {
   command: string;
@@ -51,8 +54,199 @@ interface ParsedArgs {
   flags: Record<string, string | boolean>;
 }
 
+const COMMANDS = [
+  "quickstart",
+  "capabilities",
+  "doctor",
+  "mcp-config",
+  "plan",
+  "submit",
+  "work",
+  "status",
+  "results",
+  "cancel",
+  "export-review-packet",
+  "state",
+  "privacy-check",
+  "cost-ledger",
+  "dispatch-proposal",
+  "approval-packet",
+  "agent-canary",
+  "workload-benchmark",
+  "failure-canary",
+  "compare-models",
+  "scale-ramp",
+  "corpus"
+] as const;
+
+const CORPUS_COMMANDS = [
+  "ingest-text",
+  "ingest-jsonl",
+  "ingest-ocr",
+  "ingest-media",
+  "ingest-translation",
+  "ingest-book",
+  "ingest-longform",
+  "plan",
+  "approval-packet",
+  "start",
+  "status",
+  "resume",
+  "work",
+  "validate",
+  "reconcile",
+  "cancel",
+  "translation-review-packet",
+  "commit-translation-memory",
+  "supervise"
+] as const;
+
+const COMMAND_FLAGS: Record<string, readonly string[]> = {
+  quickstart: ["output"],
+  capabilities: ["profile"],
+  doctor: [],
+  "mcp-config": ["command", "state-dir", "artifact-dir", "input-root", "format", "profile"],
+  plan: ["allow-live"],
+  submit: ["start", "allow-live"],
+  work: ["run", "allow-live"],
+  status: [],
+  results: [],
+  cancel: [],
+  "export-review-packet": [],
+  state: ["output", "limit"],
+  "privacy-check": [],
+  "cost-ledger": ["output"],
+  "dispatch-proposal": ["allow-live"],
+  "approval-packet": ["output"],
+  "agent-canary": ["output"],
+  "workload-benchmark": ["workload", "items", "concurrency", "transport", "model", "output"],
+  "failure-canary": ["output"],
+  "compare-models": ["models", "transport", "output"],
+  "scale-ramp": ["concurrency", "items", "output", "allow-live", "allow-live-scale"]
+};
+
+const CORPUS_FLAGS: Record<string, readonly string[]> = {
+  "ingest-text": ["project", "workload", "privacy", "chunk-chars", "overlap-chars", "artifact-dir"],
+  "ingest-jsonl": ["project", "privacy", "records-per-shard", "artifact-dir"],
+  "ingest-ocr": ["project", "privacy", "engine", "language", "artifact-dir", "page-count"],
+  "ingest-media": ["project", "privacy", "artifact-dir", "recursive", "max-files"],
+  "ingest-translation": [
+    "project", "source-lang", "target-lang", "glossary", "chunk-chars", "overlap-chars", "transport",
+    "privacy", "model", "concurrency", "cost-cap-usd", "max-tokens", "max-retries", "artifact-dir",
+    "translation-memory", "system-prompt"
+  ],
+  "ingest-book": [
+    "project", "privacy", "chunk-chars", "overlap-chars", "transport", "model", "concurrency",
+    "cost-cap-usd", "max-tokens", "artifact-dir", "prompt-template"
+  ],
+  "ingest-longform": [
+    "project", "privacy", "transport", "model", "concurrency", "cost-cap-usd", "max-tokens", "artifact-dir",
+    "prompt-template", "minimum-words-per-section", "no-continuity", "citation-policy"
+  ],
+  plan: ["allow-live"],
+  "approval-packet": ["output"],
+  start: ["allow-live", "enqueue-only"],
+  status: ["artifact-dir"],
+  resume: ["artifact-dir", "allow-live"],
+  work: ["artifact-dir", "allow-live", "max-iterations", "interval-ms"],
+  validate: ["artifact-dir"],
+  reconcile: ["artifact-dir", "output"],
+  cancel: ["artifact-dir"],
+  "commit-translation-memory": ["artifact-dir", "review-receipt"],
+  "translation-review-packet": ["artifact-dir"],
+  supervise: ["corpus-root", "once", "max-cycles", "interval-ms", "max-jobs-per-cycle", "max-iterations-per-job", "allow-live"]
+};
+
+const BOOLEAN_FLAGS = new Set([
+  "allow-live",
+  "allow-live-scale",
+  "enqueue-only",
+  "force",
+  "help",
+  "no-continuity",
+  "once",
+  "recursive",
+  "start"
+]);
+
+function helpText(): string {
+  return `DeepSeek Harness ${packageMetadata.version}
+Local-first, safety-gated parallel DeepSeek batch and corpus runtime.
+
+Usage:
+  deepseek-harness <command> [options]
+
+Start here:
+  quickstart              Run a local fake canary and return proof artefacts
+  capabilities            Discover workflows, safety boundaries and MCP profiles as JSON
+  doctor                  Inspect local paths and live-call prerequisites without secrets
+  mcp-config              Generate MCP JSON or Codex TOML (new installs default to core profile)
+
+Batch:
+  plan | submit | work | status | results | cancel
+  workload-benchmark | scale-ramp | compare-models | failure-canary
+
+Safety and proof:
+  privacy-check | approval-packet | export-review-packet | cost-ledger | state
+
+Corpus:
+  corpus --help           OCR, books, JSONL, translation, long-form and media workflows
+
+Global:
+  -h, --help              Show help
+  -V, --version           Print version
+
+Examples:
+  deepseek-harness quickstart
+  deepseek-harness capabilities
+  deepseek-harness plan examples/basic-run.json
+  deepseek-harness mcp-config --format codex-toml --profile core
+
+Commands return JSON on stdout. Diagnostics and structured errors use stderr.
+Live calls remain disabled unless all signed authority, privacy and cost gates pass.
+`;
+}
+
+function corpusHelpText(): string {
+  return `DeepSeek Harness corpus workflows
+
+Usage:
+  deepseek-harness corpus <command> [options]
+
+Create a manifest:
+  ingest-text | ingest-jsonl | ingest-ocr | ingest-media
+  ingest-translation | ingest-book | ingest-longform
+
+Run a resumable job:
+  plan | start | status | resume | work | validate | reconcile | cancel
+
+Governed operations:
+  approval-packet | translation-review-packet | commit-translation-memory | supervise
+
+Canonical lifecycle:
+  ingest -> plan -> start -> validate -> reconcile
+
+Run deepseek-harness capabilities for workflow selection and safety boundaries.
+`;
+}
+
 async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  if (argv.length === 0 || argv[0] === "help" || argv[0] === "--help" || argv[0] === "-h" || argv[0] === "--robot-help") {
+    process.stdout.write(argv[0] === "help" && argv[1] === "corpus" ? corpusHelpText() : helpText());
+    return;
+  }
+  if (argv[0] === "version" || argv[0] === "--version" || argv[0] === "-V") {
+    process.stdout.write(`${packageMetadata.version}\n`);
+    return;
+  }
+
+  const args = parseArgs(argv);
+  if (args.flags.help || args.flags.h) {
+    process.stdout.write(args.command === "corpus" ? corpusHelpText() : helpText());
+    return;
+  }
+  validateCommandFlags(args);
   const allowLive = Boolean(args.flags["allow-live"]);
 
   let result: unknown;
@@ -64,12 +258,20 @@ async function main(): Promise<void> {
     case "doctor":
       result = doctor();
       break;
+    case "capabilities":
+      result = productCapabilities(cliMcpProfile(args.flags.profile, "full"));
+      break;
+    case "quickstart":
+      result = await quickstart({}, { output: optionalString(args.flags.output) });
+      break;
     case "mcp-config":
       {
         const options = {
           command: optionalString(args.flags.command),
           stateDir: optionalString(args.flags["state-dir"]),
-          artifactDir: optionalString(args.flags["artifact-dir"])
+          artifactDir: optionalString(args.flags["artifact-dir"]),
+          inputRoot: optionalString(args.flags["input-root"]),
+          profile: cliMcpProfile(args.flags.profile, "core")
         };
         const format = optionalString(args.flags.format) ?? "json";
         if (format === "json") {
@@ -77,7 +279,11 @@ async function main(): Promise<void> {
         } else if (format === "codex-toml") {
           rawOutput = mcpConfigToml(options);
         } else {
-          throw new Error(`Unknown mcp-config format: ${format}`);
+          throw usageError(
+            "invalid_format",
+            `Unknown mcp-config format: ${format}`,
+            "deepseek-harness mcp-config --format codex-toml --profile core"
+          );
         }
       }
       break;
@@ -157,7 +363,7 @@ async function main(): Promise<void> {
       });
       break;
     default:
-      throw new Error(`Unknown command: ${args.command || "(missing)"}`);
+      throw unknownCommandError(args.command);
   }
 
   process.stdout.write(rawOutput ?? `${JSON.stringify(result, null, 2)}\n`);
@@ -170,6 +376,7 @@ async function handleCorpusCommand(args: ParsedArgs, options: { allowLive?: bool
     positional: rest,
     flags: args.flags
   };
+  validateCorpusFlags(corpusArgs);
 
   switch (subcommand) {
     case "ingest-text":
@@ -341,7 +548,7 @@ async function handleCorpusCommand(args: ParsedArgs, options: { allowLive?: bool
         allowLive: Boolean(options.allowLive)
       }) };
     default:
-      throw new Error(`Unknown corpus command: ${subcommand || "(missing)"}`);
+      throw unknownCorpusCommandError(subcommand);
   }
 }
 
@@ -352,8 +559,28 @@ function parseArgs(argv: string[]): ParsedArgs {
 
   for (let index = 0; index < rest.length; index += 1) {
     const value = rest[index];
-    if (value.startsWith("--")) {
-      const key = value.slice(2);
+    if (value === "-h") {
+      flags.help = true;
+    } else if (value.startsWith("--")) {
+      const rawFlag = value.slice(2);
+      const equalsIndex = rawFlag.indexOf("=");
+      const key = equalsIndex >= 0 ? rawFlag.slice(0, equalsIndex) : rawFlag;
+      const inlineValue = equalsIndex >= 0 ? rawFlag.slice(equalsIndex + 1) : undefined;
+      if (inlineValue !== undefined) {
+        if (BOOLEAN_FLAGS.has(key)) {
+          if (inlineValue !== "true" && inlineValue !== "false") {
+            throw usageError("invalid_boolean", `Expected true or false for --${key}, got ${inlineValue}.`, "deepseek-harness help");
+          }
+          flags[key] = inlineValue === "true";
+        } else {
+          flags[key] = inlineValue;
+        }
+        continue;
+      }
+      if (BOOLEAN_FLAGS.has(key)) {
+        flags[key] = true;
+        continue;
+      }
       const next = rest[index + 1];
       if (next && !next.startsWith("--")) {
         flags[key] = next;
@@ -370,13 +597,23 @@ function parseArgs(argv: string[]): ParsedArgs {
 }
 
 function readJson(filePath: string): unknown {
-  return JSON.parse(fs.readFileSync(filePath, "utf8"));
+  try {
+    return JSON.parse(fs.readFileSync(filePath, "utf8"));
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw usageError(
+      "invalid_manifest_file",
+      `Could not read JSON manifest ${filePath}: ${reason}`,
+      `deepseek-harness plan ${filePath}`,
+      ["Confirm the file exists and contains valid JSON.", `deepseek-harness plan ${filePath}`]
+    );
+  }
 }
 
 function requiredArg(args: ParsedArgs, index: number, label: string): string {
   const value = args.positional[index];
   if (!value) {
-    throw new Error(`Missing ${label}`);
+    throw usageError("missing_argument", `Missing ${label}.`, "deepseek-harness help");
   }
   return value;
 }
@@ -395,7 +632,7 @@ function optionalNumber(value: string | boolean | undefined): number | undefined
   }
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) {
-    throw new Error(`Expected number, got ${value}`);
+    throw usageError("invalid_number", `Expected a number, got ${value}.`, "deepseek-harness help");
   }
   return parsed;
 }
@@ -407,7 +644,7 @@ function optionalString(value: string | boolean | undefined): string | undefined
 function requiredStringFlag(args: ParsedArgs, flag: string): string {
   const value = optionalString(args.flags[flag]);
   if (!value) {
-    throw new Error(`Missing --${flag}`);
+    throw usageError("missing_flag", `Missing --${flag}.`, "deepseek-harness help");
   }
   return value;
 }
@@ -415,7 +652,7 @@ function requiredStringFlag(args: ParsedArgs, flag: string): string {
 function requiredNumberFlag(args: ParsedArgs, flag: string): number {
   const value = optionalNumber(args.flags[flag]);
   if (value === undefined) {
-    throw new Error(`Missing --${flag}`);
+    throw usageError("missing_flag", `Missing --${flag}.`, "deepseek-harness help");
   }
   return value;
 }
@@ -444,7 +681,7 @@ function optionalCorpusWorkload(value: string | boolean | undefined):
   ) {
     return raw;
   }
-  throw new Error(`Unknown corpus workload: ${raw}`);
+  throw usageError("invalid_workload", `Unknown corpus workload: ${raw}.`, "deepseek-harness corpus --help");
 }
 
 function optionalCorpusPrivacy(value: string | boolean | undefined):
@@ -459,7 +696,7 @@ function optionalCorpusPrivacy(value: string | boolean | undefined):
   if (raw === "local_only" || raw === "external_inference_allowed" || raw === "redacted_external_allowed") {
     return raw;
   }
-  throw new Error(`Unknown corpus privacy lane: ${raw}`);
+  throw usageError("invalid_privacy_lane", `Unknown corpus privacy lane: ${raw}.`, "deepseek-harness corpus --help");
 }
 
 function optionalCorpusTransport(value: string | boolean | undefined): TranslationTransport | undefined {
@@ -470,7 +707,7 @@ function optionalCorpusTransport(value: string | boolean | undefined): Translati
   if (raw === "fake" || raw === "dry-run" || raw === "deepseek") {
     return raw;
   }
-  throw new Error(`Unknown corpus transport: ${raw}`);
+  throw usageError("invalid_transport", `Unknown corpus transport: ${raw}.`, "deepseek-harness corpus --help");
 }
 
 function optionalOcrEngine(value: string | boolean | undefined): OcrEngine | undefined {
@@ -481,7 +718,7 @@ function optionalOcrEngine(value: string | boolean | undefined): OcrEngine | und
   if (raw === "auto" || raw === "macos_vision" || raw === "focr" || raw === "tesseract") {
     return raw;
   }
-  throw new Error(`Unknown OCR engine: ${raw}`);
+  throw usageError("invalid_ocr_engine", `Unknown OCR engine: ${raw}.`, "deepseek-harness corpus --help");
 }
 
 function optionalNumberList(value: string | boolean | undefined): number[] | undefined {
@@ -490,7 +727,11 @@ function optionalNumberList(value: string | boolean | undefined): number[] | und
   }
   const parts = value.split(",").map((part) => Number(part.trim()));
   if (parts.some((part) => !Number.isFinite(part) || part <= 0 || !Number.isInteger(part))) {
-    throw new Error(`Expected comma-separated positive integers, got ${value}`);
+    throw usageError(
+      "invalid_concurrency",
+      `Expected comma-separated positive integers, got ${value}.`,
+      "deepseek-harness scale-ramp examples/basic-run.json --concurrency 5,10,20"
+    );
   }
   return parts;
 }
@@ -502,7 +743,7 @@ function optionalLocalTransport(value: string | boolean | undefined): "fake" | "
   if (value === "fake" || value === "dry-run") {
     return value;
   }
-  throw new Error(`Expected fake or dry-run transport, got ${value}`);
+  throw usageError("invalid_transport", `Expected fake or dry-run transport, got ${value}.`, "deepseek-harness capabilities");
 }
 
 function optionalModel(value: string | boolean | undefined): "deepseek-v4-flash" | "deepseek-v4-pro" | undefined {
@@ -512,7 +753,7 @@ function optionalModel(value: string | boolean | undefined): "deepseek-v4-flash"
   if (value === "deepseek-v4-flash" || value === "deepseek-v4-pro") {
     return value;
   }
-  throw new Error(`Expected DeepSeek V4 model, got ${value}`);
+  throw usageError("invalid_model", `Expected DeepSeek V4 model, got ${value}.`, "deepseek-harness capabilities");
 }
 
 function optionalModelList(value: string | boolean | undefined): Array<"deepseek-v4-flash" | "deepseek-v4-pro"> | undefined {
@@ -522,13 +763,110 @@ function optionalModelList(value: string | boolean | undefined): Array<"deepseek
   return value.split(",").map((part) => {
     const model = optionalModel(part.trim());
     if (!model) {
-      throw new Error(`Expected DeepSeek V4 model, got ${part}`);
+      throw usageError("invalid_model", `Expected DeepSeek V4 model, got ${part}.`, "deepseek-harness capabilities");
     }
     return model;
   });
 }
 
+function validateCommandFlags(args: ParsedArgs): void {
+  if (args.command === "corpus") {
+    return;
+  }
+  const allowed = COMMAND_FLAGS[args.command];
+  if (!allowed) {
+    return;
+  }
+  validateFlags(args.flags, allowed, `deepseek-harness ${args.command} --help`);
+}
+
+function validateCorpusFlags(args: ParsedArgs): void {
+  const allowed = CORPUS_FLAGS[args.command];
+  if (!allowed) {
+    return;
+  }
+  validateFlags(args.flags, allowed, `deepseek-harness corpus ${args.command} --help`);
+}
+
+function validateFlags(flags: Record<string, string | boolean>, allowed: readonly string[], helpCommand: string): void {
+  const supported = [...allowed, "help"];
+  for (const flag of Object.keys(flags)) {
+    if (supported.includes(flag)) {
+      continue;
+    }
+    const suggestion = closestMatch(flag, supported);
+    const corrected = suggestion ? `--${suggestion}` : helpCommand;
+    throw usageError(
+      "unknown_flag",
+      `Unknown flag: --${flag}.${suggestion ? ` Did you mean --${suggestion}?` : ""}`,
+      corrected,
+      [corrected, helpCommand]
+    );
+  }
+}
+
+function cliMcpProfile(value: string | boolean | undefined, fallback: McpProfile): McpProfile {
+  try {
+    return parseMcpProfile(optionalString(value), fallback);
+  } catch {
+    throw usageError(
+      "invalid_mcp_profile",
+      `Unknown MCP profile: ${String(value)}. Expected core, corpus, or full.`,
+      `deepseek-harness mcp-config --profile ${fallback}`
+    );
+  }
+}
+
+function unknownCommandError(command: string) {
+  const suggestion = closestMatch(command, COMMANDS);
+  const corrected = suggestion ? `deepseek-harness ${suggestion}` : "deepseek-harness help";
+  return usageError(
+    "unknown_command",
+    `Unknown command: ${command || "(missing)"}.${suggestion ? ` Did you mean ${suggestion}?` : ""}`,
+    corrected,
+    [corrected, "deepseek-harness capabilities"]
+  );
+}
+
+function unknownCorpusCommandError(command: string) {
+  const suggestion = closestMatch(command, CORPUS_COMMANDS);
+  const corrected = suggestion ? `deepseek-harness corpus ${suggestion}` : "deepseek-harness corpus --help";
+  return usageError(
+    "unknown_corpus_command",
+    `Unknown corpus command: ${command || "(missing)"}.${suggestion ? ` Did you mean ${suggestion}?` : ""}`,
+    corrected,
+    [corrected, "deepseek-harness corpus --help"]
+  );
+}
+
+function closestMatch(value: string, choices: readonly string[]): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const ranked = choices
+    .map((choice) => ({ choice, distance: editDistance(value, choice) }))
+    .sort((left, right) => left.distance - right.distance || left.choice.localeCompare(right.choice));
+  const best = ranked[0];
+  return best && best.distance <= Math.max(2, Math.floor(best.choice.length / 3)) ? best.choice : undefined;
+}
+
+function editDistance(left: string, right: string): number {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    const current = [leftIndex];
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      current[rightIndex] = Math.min(
+        current[rightIndex - 1] + 1,
+        previous[rightIndex] + 1,
+        previous[rightIndex - 1] + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1)
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+  return previous[right.length];
+}
+
 main().catch((error) => {
   process.stderr.write(`${JSON.stringify(toErrorPayload(error), null, 2)}\n`);
-  process.exitCode = 1;
+  process.exitCode = errorExitCode(error);
 });

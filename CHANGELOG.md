@@ -1,7 +1,44 @@
 # Changelog
 
 All notable changes to this project are documented here. This file records
-released source artefacts, not every commit or local proof run.
+release and release-candidate artefacts, not every commit or local proof run.
+
+## [0.1.0] - 2026-07-18
+
+Prepared the public npm CLI/MCP package release candidate. This version is not
+published to npm; publication remains available only through the manual,
+protected release workflow after the `v0.1.0` tag is reviewed.
+
+### Added
+
+- Public package metadata for the existing unscoped `deepseek-harness` name,
+  with public access and npm provenance enabled.
+- A `prepack` build gate, explicit archive boundary, and installed-package
+  smoke covering the CLI, MCP server, quickstart, and macOS Vision adapter.
+- A manual release workflow with exact tag/version matching, the full CI
+  command set, npm pack boundary proof, one exact tarball plus SHA-256 checksum,
+  GitHub Release attachment, and optional OIDC trusted publishing of that same
+  tarball.
+- Product onboarding for `quickstart`, `capabilities`, and the `core`,
+  `corpus`, and `full` MCP profiles.
+- A self-contained source installation with verify, repair/upgrade and
+  ownership-safe uninstall modes that preserve local state and artefacts.
+- MCP tool annotations, structured discovery responses and protocol-level
+  error signalling for agent clients.
+
+### Changed
+
+- CLI help and unknown-flag handling now fail before work starts, suggest close
+  command matches and return stable machine-readable exit codes.
+- Local SQLite state now records a schema version and refuses state created by
+  a newer incompatible harness version before mutation.
+
+### Security
+
+- The source installer remains the current installation route until the first
+  registry publication. No npm publication is claimed by this changelog.
+- Live DeepSeek calls remain behind the existing signed authority, privacy,
+  cost and side-effect gates.
 
 ## [0.0.1] - 2026-07-18
 
@@ -22,8 +59,9 @@ Initial public source release.
 
 - The source release excludes local runtime state, artefacts, translation
   memories, environment files and internal agent evidence.
-- The package remains private to npm; this release is source-first and does not
-  enable package publication.
+- npm publication was intentionally disabled for this historical source
+  release; the current `0.1.0` candidate has a separate manual publication
+  path.
 
 Representative implementation commits:
 

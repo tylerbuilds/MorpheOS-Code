@@ -21,15 +21,42 @@ sidecar, not an approval system and not an Agent OS state writer.
 
 ## Start here
 
-New to the harness? Follow the [user guide](docs/user-guide.md) for a safe fake
-run, local CLI installation, MCP setup and the live-run approval boundary.
-Operators should also read the [operator guide](docs/operator-guide.md).
+The `v0.1.0` public npm package is prepared but has not been published. Until
+the first registry publication, use the source installer. The first journey is
+install, prove a safe local run, discover capabilities, then configure MCP:
 
-The `v0.0.1` release is an MIT-licensed source release. It is intentionally not
-published to npm: `package.json` remains private, and `npm run pack:check` is a
-local archive-boundary check rather than a publication step. Clone the
-repository and use the local installer when you want the CLI or MCP launchers
-on your machine.
+```bash
+git clone https://github.com/tylerbuilds/deepseek-harness.git
+cd deepseek-harness
+bash scripts/install-local.sh --install-dir "$HOME/bin" --profile core --print-config
+export PATH="$HOME/bin:$PATH"
+deepseek-harness quickstart
+deepseek-harness capabilities
+deepseek-harness mcp-config --format codex-toml --command "$HOME/bin/deepseek-harness-mcp" --profile core
+```
+
+The quickstart is a zero-network fake canary. The generated MCP configuration
+contains local state, artefact and input paths only; it does not contain an API
+key. Operators should also read the [operator guide](docs/operator-guide.md).
+
+Verify, upgrade, or remove a source installation with the same explicit paths:
+
+```bash
+bash scripts/install-local.sh --install-dir "$HOME/bin" --profile core --verify
+bash scripts/install-local.sh --install-dir "$HOME/bin" --profile core --force
+bash scripts/install-local.sh --install-dir "$HOME/bin" --profile core --uninstall
+```
+
+Uninstall removes only installer-marked launchers, runtime files and generated
+MCP snippets. It preserves state, artefacts and unrelated operator files.
+
+After the first registry publication, the equivalent package commands become
+available. Do not use these commands as current publication evidence:
+
+```bash
+npm install --global deepseek-harness@0.1.0
+npx --yes deepseek-harness@0.1.0 quickstart
+```
 
 ## Safety Contract
 
@@ -57,12 +84,14 @@ Live scale ramps additionally require `--allow-live-scale`.
 ## Commands
 
 ```bash
-npm install
 npm run build
 npm test
 npm run test:e2e
-cargo test
-bash scripts/install-local.sh --install-dir "$HOME/bin" --print-config
+npm run mcp:smoke
+npm run package:smoke
+npm run pack:check
+npm audit --audit-level=high
+cargo test --locked
 
 node dist/src/cli.js doctor
 node dist/src/cli.js mcp-config --command "$HOME/bin/deepseek-harness-mcp"
@@ -120,6 +149,21 @@ supervisor.
 Media transcodes, publishing, deploys and canonical Agent OS writes remain
 outside the runner.
 
+## MCP profiles
+
+MCP configuration defaults new installs to the compact `core` profile. Select a
+profile when one agent needs a different tool surface:
+
+| Profile | Includes | Use it for |
+| --- | --- | --- |
+| `core` | discovery, batch, safety, proof and benchmark | The default general-agent setup |
+| `corpus` | discovery and corpus ingest/workflow tools | Corpus-only operators |
+| `full` | Every batch, safety, proof, benchmark and corpus tool | An agent that needs both planes |
+
+Use `--profile core`, `--profile corpus` or `--profile full` with
+`capabilities` and `mcp-config`. The profile is also carried in generated MCP
+configuration as `DEEPSEEK_HARNESS_MCP_PROFILE`.
+
 Operator docs:
 
 - `docs/operator-guide.md`
@@ -129,8 +173,8 @@ Operator docs:
 ## MCP
 
 ```bash
-bash scripts/install-local.sh --install-dir "$HOME/bin" --print-config
-npm run mcp:smoke -- --command "$HOME/bin/deepseek-harness-mcp"
+deepseek-harness mcp-config --command "$HOME/bin/deepseek-harness-mcp" --profile core
+npm run mcp:smoke -- --command "$HOME/bin/deepseek-harness-mcp" --profile core
 ```
 
 Add the generated MCP snippet at `~/.config/deepseek-harness/mcp-server.json`
@@ -139,6 +183,27 @@ DeepSeek API key.
 
 For Codex, append the generated TOML snippet at
 `~/.config/deepseek-harness/codex-mcp-server.toml` to `~/.codex/config.toml`.
+
+`npm run mcp:inspect` is optional interactive developer debugging. It opens the
+MCP Inspector UI against the local stdio server and may remain running until
+you stop it. It is not a CI or release gate and does not replace
+`npm run mcp:smoke`, which remains the automated protocol smoke.
+
+`npm run package:smoke` is the installed-package check used by CI and the
+release workflow. It packs the current tree into a temporary prefix, runs the
+installed CLI and MCP launchers, proves a zero-network quickstart and checks the
+packaged macOS Vision adapter. It does not publish anything.
+
+The main CI matrix runs the source/release smoke on both `ubuntu-latest` and
+`macos-14`; the macOS lane is the platform proof that the installed archive
+retains `scripts/ocr-vision.swift`. This is CI configuration, not evidence that
+the v0.1.0 release workflow has run.
+
+The manual release workflow additionally creates one exact npm tarball, verifies
+its SHA-256 checksum, runs the installed-package smoke against that same file,
+and attaches the tarball and checksum to the matching GitHub Release. npm
+publication is an explicit workflow input behind the protected `release`
+environment; this workflow has not been run here.
 
 Tools:
 

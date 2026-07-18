@@ -5,6 +5,8 @@ import { HarnessError } from "./errors.js";
 import type { ApprovalReceipt, RunManifest } from "./schema.js";
 import type { BudgetEstimate } from "./budget.js";
 
+export const STATE_SCHEMA_VERSION = 1;
+
 export type RunStatus = "queued" | "running" | "completed" | "failed" | "cancelled" | "budget_exhausted";
 export type ItemStatus = "queued" | "running" | "completed" | "failed" | "cancelled" | "budget_exhausted";
 
@@ -35,6 +37,7 @@ export class HarnessStore {
   readonly stateDir: string;
   readonly dbPath: string;
   readonly db: DatabaseSync;
+  readonly schemaVersion: number;
 
   constructor(stateDir: string) {
     this.stateDir = stateDir;
@@ -42,7 +45,23 @@ export class HarnessStore {
     this.dbPath = path.join(stateDir, "deepseek-harness.sqlite");
     this.db = new DatabaseSync(this.dbPath);
     this.db.exec("PRAGMA busy_timeout = 5000;");
+    const existingSchemaVersion = this.readSchemaVersion();
+    if (existingSchemaVersion > STATE_SCHEMA_VERSION) {
+      this.db.close();
+      throw new HarnessError(
+        "state_schema_too_new",
+        `State schema ${existingSchemaVersion} is newer than supported schema ${STATE_SCHEMA_VERSION}. Upgrade deepseek-harness before using this state directory.`,
+        {
+          state_dir: this.stateDir,
+          found_schema: existingSchemaVersion,
+          supported_schema: STATE_SCHEMA_VERSION,
+          recoverable: true,
+          next_actions: ["Upgrade deepseek-harness, then rerun deepseek-harness doctor."]
+        }
+      );
+    }
     this.migrate();
+    this.schemaVersion = this.readSchemaVersion();
   }
 
   close(): void {
@@ -101,7 +120,13 @@ export class HarnessStore {
       );
       CREATE INDEX IF NOT EXISTS idx_budget_reservations_local_date ON budget_reservations(local_date);
       CREATE INDEX IF NOT EXISTS idx_budget_reservations_created_at ON budget_reservations(created_at);
+      PRAGMA user_version = ${STATE_SCHEMA_VERSION};
     `);
+  }
+
+  private readSchemaVersion(): number {
+    const row = this.db.prepare("PRAGMA user_version;").get() as { user_version?: number } | undefined;
+    return Number(row?.user_version ?? 0);
   }
 
   createRun(runId: string, manifest: RunManifest, artifactDir: string): RunRecord {

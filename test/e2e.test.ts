@@ -7,6 +7,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import packageMetadata from "../package.json" with { type: "json" };
 
 const execFileAsync = promisify(execFile);
 
@@ -90,7 +91,7 @@ test("e2e MCP runs workload benchmark through stdio server", async () => {
 
   try {
     await client.connect(transport);
-    assert.equal(client.getServerVersion()?.version, "0.0.1");
+    assert.equal(client.getServerVersion()?.version, packageMetadata.version);
     const tools = await client.listTools();
     assert.equal(tools.tools.some((tool) => tool.name === "deepseek_harness_workload_benchmark"), true);
 

@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-Security fixes target the latest `0.0.x` release and the default branch.
+Security fixes target the latest `0.x` release and the default branch.
 
 ## Reporting A Vulnerability
 
@@ -36,6 +36,7 @@ Out of scope:
 - Live DeepSeek calls are disabled by default.
 - Live calls require explicit approval metadata and caller flags.
 - Raw API keys must be provided only through the process environment.
+- SQLite state carries an explicit compatibility version; older binaries refuse newer state rather than mutating it.
 - `artifacts/`, `.state/`, `target/`, `.env` and logs are ignored by git.
 - The harness must not write canonical Agent OS state, deploy, publish, send
   messages, approve its own output, or apply repo changes.

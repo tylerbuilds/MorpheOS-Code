@@ -4,9 +4,52 @@ This harness is for fast, bounded DeepSeek batch inference with local evidence.
 It is not an approval system, repo applier, publisher, deployer, state writer or
 secret manager.
 
-The `v0.0.1` artefact is a GitHub/source release. `package.json` is intentionally
-private to npm; `npm run pack:check` is a local allowlist check only, not a
-publication workflow.
+The `v0.1.0` public npm package is prepared but has not been published. Until
+the first registry publication, operators should use the source installer and
+the manual release workflow should be treated as the only publication route.
+
+## Operator installation and discovery
+
+The first operational journey is install, zero-network quickstart, capability
+discovery, then MCP configuration:
+
+```bash
+git clone https://github.com/tylerbuilds/deepseek-harness.git
+cd deepseek-harness
+bash scripts/install-local.sh --install-dir "$HOME/bin" --profile core --print-config
+export PATH="$HOME/bin:$PATH"
+deepseek-harness quickstart
+deepseek-harness capabilities
+deepseek-harness mcp-config --format codex-toml --command "$HOME/bin/deepseek-harness-mcp" --profile core
+```
+
+The source installer builds the launchers and writes only local configuration.
+Review its path and profile arguments before use. The quickstart must report
+zero provider network calls before an operator proceeds.
+
+After the first registry publication, these future-only commands will provide
+the equivalent package route:
+
+```bash
+npm install --global deepseek-harness@0.1.0
+npx --yes deepseek-harness@0.1.0 quickstart
+```
+
+They are not current publication evidence.
+
+## MCP profiles
+
+Use the smallest profile that gives an agent the required tools:
+
+| Profile | Tool groups | Default |
+| --- | --- | --- |
+| `core` | discovery, batch, safety, proof and benchmark | Yes for new MCP configuration |
+| `corpus` | discovery and corpus workflows | No |
+| `full` | all available tool groups | No |
+
+Pass `--profile core`, `--profile corpus` or `--profile full` to `mcp-config`,
+and keep the same profile in the MCP launcher environment as
+`DEEPSEEK_HARNESS_MCP_PROFILE`.
 
 ## Normal Route
 
@@ -20,7 +63,6 @@ publication workflow.
 ## Local Proof Loop
 
 ```bash
-npm install
 npm run typecheck
 npm test
 npm run test:e2e
@@ -32,7 +74,10 @@ node dist/src/cli.js failure-canary --output artifacts/failure-canary.json
 node dist/src/cli.js scale-ramp examples/basic-run.json --concurrency 5,10,20 --items 40 --output artifacts/scale-ramp-local.json
 cargo run -p deepseek-harness-worker -- --manifest examples/basic-run.json --transport fake --concurrency 4 --output rust-worker-basic-run.json
 bash scripts/install-local.sh --install-dir "$HOME/bin" --print-config
-npm run mcp:smoke -- --command "$HOME/bin/deepseek-harness-mcp"
+npm run mcp:smoke -- --command "$HOME/bin/deepseek-harness-mcp" --profile core
+npm run package:smoke
+npm run pack:check
+npm audit --audit-level=high
 ```
 
 The default example uses `transport: "fake"` and does not call DeepSeek.
@@ -127,8 +172,8 @@ git. Keep them local unless a specific review route asks for them.
 ## MCP
 
 ```bash
-bash scripts/install-local.sh --install-dir "$HOME/bin" --print-config
-npm run mcp:smoke -- --command "$HOME/bin/deepseek-harness-mcp"
+bash scripts/install-local.sh --install-dir "$HOME/bin" --profile core --print-config
+npm run mcp:smoke -- --command "$HOME/bin/deepseek-harness-mcp" --profile core
 ```
 
 The MCP server exposes the same service layer as the CLI. Treat MCP output as
@@ -146,6 +191,36 @@ launcher path and local state/artifact directories only. They deliberately do
 not include `DEEPSEEK_API_KEY`.
 
 For Codex, append `codex-mcp-server.toml` to `~/.codex/config.toml`.
+
+`npm run mcp:inspect` is optional interactive developer debugging. It opens the
+MCP Inspector UI against the local stdio server and may remain running until
+you stop it. It is never a CI or release gate and does not replace
+`npm run mcp:smoke`, the automated protocol smoke gate.
+
+`npm run package:smoke` is the installed-package proof used by the release
+workflow. It installs a temporary npm archive, checks the installed CLI and MCP
+launchers, runs the zero-network quickstart and verifies the packaged macOS
+Vision adapter. It does not publish anything.
+
+The main CI matrix runs this source/release smoke on `ubuntu-latest` and
+`macos-14`; the macOS lane is the platform-specific package proof for the
+Vision adapter. That configured CI lane is not a claim that the v0.1.0 release
+workflow has run.
+
+## Release readiness
+
+The manual `.github/workflows/release.yml` workflow checks the exact relationship
+between the input tag and `package.json` version, runs the complete CI command
+set and captures npm pack boundary proof. Its protected release phase creates
+one exact npm tarball, computes and verifies its SHA-256 checksum, installs that
+same tarball, proves the installed CLI/MCP/quickstart path and checks the
+packaged macOS Vision adapter. It then attaches the tarball and checksum to the
+matching GitHub Release. An explicit `publish_npm` input can publish that same
+file through npm OIDC trusted publishing with `id-token: write`.
+
+Configure required reviewers for the `release` environment in GitHub. The
+workflow is manual and has not been run here; do not run `npm publish` from an
+operator workstation or infer publication from these local checks.
 
 ## Hard Boundaries
 

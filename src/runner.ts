@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createHash, randomUUID } from "node:crypto";
 import { observedUsageCost } from "./budget.js";
 import { buildCostLedger } from "./cost.js";
@@ -12,7 +13,8 @@ import {
   writeArtifactOutput
 } from "./paths.js";
 import { classifyManifestPrivacy } from "./privacy.js";
-import { HarnessStore, type ItemRecord } from "./store.js";
+import { parseMcpProfile, PRODUCT_VERSION, productCapabilities, type McpProfile } from "./product.js";
+import { HarnessStore, STATE_SCHEMA_VERSION, type ItemRecord } from "./store.js";
 import {
   assertPlanExecutable,
   buildExecutionPlan,
@@ -83,6 +85,7 @@ export interface McpConfigOptions {
   stateDir?: string;
   artifactDir?: string;
   inputRoot?: string;
+  profile?: McpProfile;
 }
 
 export function createStore(context: HarnessContext = {}): HarnessStore {
@@ -92,16 +95,23 @@ export function createStore(context: HarnessContext = {}): HarnessStore {
 export function doctor(context: HarnessContext = {}): Record<string, unknown> {
   const store = createStore(context);
   try {
+    const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
     return {
       ok: true,
+      version: PRODUCT_VERSION,
       node: process.version,
       state_dir: store.stateDir,
       db_path: store.dbPath,
+      state_schema: {
+        current: store.schemaVersion,
+        supported: STATE_SCHEMA_VERSION,
+        compatible: store.schemaVersion === STATE_SCHEMA_VERSION
+      },
       cwd: process.cwd(),
       corpus_input_root: defaultCorpusInputRoot(),
       cli: {
-        source_entrypoint: path.resolve(process.cwd(), "dist/src/cli.js"),
-        mcp_entrypoint: path.resolve(process.cwd(), "dist/src/mcp.js")
+        source_entrypoint: path.join(moduleDirectory, "cli.js"),
+        mcp_entrypoint: path.join(moduleDirectory, "mcp.js")
       },
       deepseek_api_key_present: Boolean(process.env.DEEPSEEK_API_KEY),
       signed_receipt_public_key_present: Boolean(process.env.DEEPSEEK_HARNESS_APPROVAL_PUBLIC_KEY),
@@ -116,7 +126,8 @@ export function doctor(context: HarnessContext = {}): Record<string, unknown> {
 }
 
 export function mcpConfig(options: McpConfigOptions = {}): Record<string, unknown> {
-  const mcpEntrypoint = path.resolve(process.cwd(), "dist/src/mcp.js");
+  const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
+  const mcpEntrypoint = path.join(moduleDirectory, "mcp.js");
   const command = options.command ? path.resolve(options.command) : process.execPath;
   const args = options.command ? [] : [mcpEntrypoint];
   const stateDir = path.resolve(options.stateDir ?? process.env.DEEPSEEK_HARNESS_STATE_DIR ?? path.join(process.cwd(), ".state"));
@@ -124,6 +135,7 @@ export function mcpConfig(options: McpConfigOptions = {}): Record<string, unknow
     options.artifactDir ?? process.env.DEEPSEEK_HARNESS_ARTIFACT_DIR ?? path.join(process.cwd(), "artifacts")
   );
   const inputRoot = path.resolve(options.inputRoot ?? defaultCorpusInputRoot());
+  const profile = parseMcpProfile(options.profile, "core");
 
   return {
     mcpServers: {
@@ -133,7 +145,8 @@ export function mcpConfig(options: McpConfigOptions = {}): Record<string, unknow
         env: {
           DEEPSEEK_HARNESS_STATE_DIR: stateDir,
           DEEPSEEK_HARNESS_ARTIFACT_DIR: artifactDir,
-          DEEPSEEK_HARNESS_INPUT_ROOT: inputRoot
+          DEEPSEEK_HARNESS_INPUT_ROOT: inputRoot,
+          DEEPSEEK_HARNESS_MCP_PROFILE: profile
         }
       }
     }
@@ -161,6 +174,7 @@ export function mcpConfigToml(options: McpConfigOptions = {}): string {
     `DEEPSEEK_HARNESS_STATE_DIR = ${tomlString(server.env.DEEPSEEK_HARNESS_STATE_DIR)}`,
     `DEEPSEEK_HARNESS_ARTIFACT_DIR = ${tomlString(server.env.DEEPSEEK_HARNESS_ARTIFACT_DIR)}`,
     `DEEPSEEK_HARNESS_INPUT_ROOT = ${tomlString(server.env.DEEPSEEK_HARNESS_INPUT_ROOT)}`,
+    `DEEPSEEK_HARNESS_MCP_PROFILE = ${tomlString(server.env.DEEPSEEK_HARNESS_MCP_PROFILE)}`,
     ""
   ].join("\n");
 }
@@ -600,6 +614,38 @@ export async function agentCanary(
 
   const output = options.output ? writeMacroReport(options.output, report, context.artifactRoot ?? defaultArtifactRoot()) : null;
   return { ok: report.status === "ok", path: output, report };
+}
+
+export async function quickstart(
+  context: HarnessContext = {},
+  options: MacroOptions = {}
+): Promise<Record<string, unknown>> {
+  const started = performance.now();
+  const health = doctor(context);
+  const canary = await agentCanary(context, options) as {
+    ok: boolean;
+    path: string | null;
+    report: Record<string, unknown>;
+  };
+  const elapsedMs = Math.round(performance.now() - started);
+
+  return {
+    ok: canary.ok,
+    schema_version: "deepseek-harness.quickstart.v1",
+    status: canary.ok ? "ready" : "failed",
+    elapsed_ms: elapsedMs,
+    network_calls: 0,
+    health,
+    canary,
+    capabilities: productCapabilities("core"),
+    next_actions: canary.ok
+      ? [
+          "Inspect canary.report.artefacts.review_packet and cost_ledger.",
+          "Run deepseek-harness capabilities to choose a workflow.",
+          "Generate MCP configuration with deepseek-harness mcp-config --format codex-toml --profile core."
+        ]
+      : ["Run deepseek-harness doctor and resolve the reported local failure before retrying quickstart."]
+  };
 }
 
 export async function workloadBenchmark(

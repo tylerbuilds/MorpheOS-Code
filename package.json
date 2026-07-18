@@ -1,8 +1,7 @@
 {
   "name": "deepseek-harness",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Local-first, safety-gated CLI and MCP harness for bounded DeepSeek batch and corpus workloads.",
-  "private": true,
   "license": "MIT",
   "author": "DeepSeek Harness contributors",
   "repository": {
@@ -37,6 +36,9 @@
     "mcp:config": "node dist/src/cli.js mcp-config",
     "mcp:config:codex": "node dist/src/cli.js mcp-config --format codex-toml",
     "mcp:smoke": "node scripts/smoke-mcp.mjs",
+    "mcp:inspect": "npx --yes @modelcontextprotocol/inspector node dist/src/mcp.js",
+    "package:smoke": "node scripts/smoke-package.mjs",
+    "prepack": "npm run build",
     "pack:check": "npm run build && node scripts/check-package-contents.mjs"
   },
   "dependencies": {
@@ -68,6 +70,8 @@
     "dist/src/errors.js",
     "dist/src/index.js",
     "dist/src/mcp.js",
+    "dist/src/product.js",
+    "dist/package.json",
     "dist/src/paths.js",
     "dist/src/privacy.js",
     "dist/src/runner.js",
@@ -89,11 +93,16 @@
     "examples/workload-benchmark.json",
     "scripts/install-local.sh",
     "scripts/smoke-mcp.mjs",
+    "scripts/ocr-vision.swift",
     "README.md",
     "LICENSE",
     "SECURITY.md",
     "docs/user-guide.md",
     "docs/operator-guide.md",
     "docs/corpus-heavy-workloads.md"
-  ]
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
 }

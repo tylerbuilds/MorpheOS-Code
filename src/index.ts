@@ -11,6 +11,7 @@ export { validateCorpusWorkload } from "./corpus_validation.js";
 export type { CorpusValidationRecordLike, CorpusWorkloadValidationInput } from "./corpus_validation.js";
 export * from "./errors.js";
 export * from "./privacy.js";
+export * from "./product.js";
 export * from "./runner.js";
 export * from "./schema.js";
 export * from "./store.js";

@@ -35,7 +35,17 @@ const output = execFileSync(npmCommand, ["pack", "--dry-run", "--json"], {
 });
 const packages = JSON.parse(output);
 const files = packages[0]?.files?.map((entry) => entry.path).sort() ?? [];
-const required = ["LICENSE", "README.md", "package.json", "dist/src/cli.js", "dist/src/mcp.js", "scripts/install-local.sh"];
+const required = [
+  "LICENSE",
+  "README.md",
+  "package.json",
+  "dist/package.json",
+  "dist/src/cli.js",
+  "dist/src/mcp.js",
+  "dist/src/product.js",
+  "scripts/install-local.sh",
+  "scripts/ocr-vision.swift"
+];
 const npmAlwaysIncluded = ["LICENSE", "README.md", "package.json"];
 const allowed = new Set([...declaredFiles, ...npmAlwaysIncluded]);
 

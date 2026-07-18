@@ -15,8 +15,14 @@ concurrency:
 
 jobs:
   node:
-    name: Node
-    runs-on: ubuntu-latest
+    name: Node (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-14
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -26,9 +32,11 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-      - run: npm run test:e2e
+      - run: node scripts/check-version-consistency.mjs
       - run: npm run mcp:smoke
       - run: npm run pack:check
+      - run: node scripts/smoke-package.mjs
+      - run: npm audit --audit-level=high
 
   rust:
     name: Rust
