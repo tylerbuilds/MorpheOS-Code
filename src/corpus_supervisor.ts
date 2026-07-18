@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { corpusWorkAsync } from "./corpus.js";
@@ -588,8 +589,9 @@ function assertSafePath(candidate: string, artifactRoot: string): void {
     );
   }
   const normalised = candidate.split(path.sep).join("/");
+  const protectedWorkspaceRoot = path.resolve(os.homedir(), "Documents", "Obsidian").split(path.sep).join("/");
   const forbidden = [
-    "/Documents/Obsidian/Command Centre/_state/",
+    `${protectedWorkspaceRoot}/`,
     "/.ssh/",
     "/.gnupg/",
     "/Library/Keychains/",

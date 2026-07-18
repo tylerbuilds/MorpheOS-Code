@@ -56,15 +56,15 @@ test("submits and runs fake batch with SQLite state", async () => {
   assert.equal(state.state.runs.length, 1);
 });
 
-test("blocks direct Command Centre state writes", () => {
+test("blocks direct protected private-workspace state writes", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "deepseek-harness-"));
   assert.throws(
     () =>
       exportHarnessState(
         { stateDir: path.join(root, ".state") },
-        { output: "/Users/example/Documents/Obsidian/Command Centre/_state/deepseek-harness.json" }
+        { output: "/Users/example/Documents/Obsidian/private-workspace-state/deepseek-harness.json" }
       ),
-    /Command Centre\/_state/
+    /protected private-workspace state/
   );
 });
 

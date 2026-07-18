@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { observedUsageCost } from "./budget.js";
@@ -383,10 +384,10 @@ export function exportHarnessState(
   options: { output?: string; limit?: number } = {}
 ): Record<string, unknown> {
   const output = path.resolve(options.output ?? path.join(context.artifactRoot ?? defaultArtifactRoot(), "deepseek-harness-state.json"));
-  if (isCommandCentreStatePath(output)) {
+  if (isProtectedWorkspaceStatePath(output)) {
     throw new HarnessError(
-      "command_centre_state_write_blocked",
-      "Harness must not write Command Centre/_state directly; route this through Agent OS"
+      "protected_workspace_state_write_blocked",
+      "Harness must not write protected private-workspace state directly"
     );
   }
 
@@ -522,10 +523,10 @@ export function exportApprovalPacket(
   const output = path.resolve(
     options.output ?? path.join(context.artifactRoot ?? defaultArtifactRoot(), `${project}-approval-packet.json`)
   );
-  if (isCommandCentreStatePath(output)) {
+  if (isProtectedWorkspaceStatePath(output)) {
     throw new HarnessError(
-      "command_centre_state_write_blocked",
-      "Harness must not write Command Centre/_state directly; route this through Agent OS"
+      "protected_workspace_state_write_blocked",
+      "Harness must not write protected private-workspace state directly"
     );
   }
 
@@ -562,10 +563,10 @@ export function exportCostLedger(
     const run = store.getRun(runId);
     const ledger = buildCostLedger(run, store.listItems(runId), store.budgetStatus(runId));
     const output = path.resolve(options.output ?? path.join(run.artifact_dir, "cost-ledger.json"));
-    if (isCommandCentreStatePath(output)) {
+    if (isProtectedWorkspaceStatePath(output)) {
       throw new HarnessError(
-        "command_centre_state_write_blocked",
-        "Harness must not write Command Centre/_state directly; route this through Agent OS"
+        "protected_workspace_state_write_blocked",
+        "Harness must not write protected private-workspace state directly"
       );
     }
 
@@ -730,10 +731,10 @@ export async function scaleRamp(
   const output = path.resolve(
     options.output ?? path.join(context.artifactRoot ?? defaultArtifactRoot(), `scale-ramp-${Date.now()}.json`)
   );
-  if (isCommandCentreStatePath(output)) {
+  if (isProtectedWorkspaceStatePath(output)) {
     throw new HarnessError(
-      "command_centre_state_write_blocked",
-      "Harness must not write Command Centre/_state directly; route this through Agent OS"
+      "protected_workspace_state_write_blocked",
+      "Harness must not write protected private-workspace state directly"
     );
   }
 
@@ -885,10 +886,10 @@ function injectedFailureMessage(manifest: RunManifest, item: RunItem): string | 
 
 function writeMacroReport(output: string, report: unknown): string {
   const resolved = path.resolve(output);
-  if (isCommandCentreStatePath(resolved)) {
+  if (isProtectedWorkspaceStatePath(resolved)) {
     throw new HarnessError(
-      "command_centre_state_write_blocked",
-      "Harness must not write Command Centre/_state directly; route this through Agent OS"
+      "protected_workspace_state_write_blocked",
+      "Harness must not write protected private-workspace state directly"
     );
   }
   fs.mkdirSync(path.dirname(resolved), { recursive: true });
@@ -910,9 +911,14 @@ function localMacroAuthority(): Record<string, boolean | string> {
   };
 }
 
-function isCommandCentreStatePath(filePath: string): boolean {
+function isProtectedWorkspaceStatePath(filePath: string): boolean {
   const normalised = filePath.split(path.sep).join("/");
-  return normalised.includes("/Documents/Obsidian/Command Centre/_state/");
+  const protectedWorkspaceRoot = path.resolve(os.homedir(), "Documents", "Obsidian").split(path.sep).join("/");
+  return (
+    normalised === protectedWorkspaceRoot ||
+    normalised.startsWith(`${protectedWorkspaceRoot}/`) ||
+    normalised.includes("/private-workspace-state/")
+  );
 }
 
 function redactReceiptForArtifact(manifest: RunManifest): RunManifest {

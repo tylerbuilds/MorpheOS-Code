@@ -604,7 +604,7 @@ server.registerTool(
   "deepseek_harness_state",
   {
     title: "DeepSeek Harness State",
-    description: "Return or export a read-model snapshot. Direct Command Centre state writes are blocked.",
+    description: "Return or export a read-model snapshot. Protected private-workspace state writes are blocked.",
     inputSchema: {
       output: z.string().optional(),
       limit: z.number().int().positive().optional()

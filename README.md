@@ -129,7 +129,6 @@ Operator docs:
 - `docs/operator-guide.md`
 - `docs/corpus-heavy-workloads.md`
 - `docs/sprint-plan.md`
-- `docs/proof/DSH-09-CLOSEOUT-2026-07-06.md`
 
 ## MCP
 

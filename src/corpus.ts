@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
@@ -2721,8 +2722,9 @@ function fsyncDirectory(directory: string): void {
 
 function assertNotForbiddenPath(filePath: string): void {
   const normalised = filePath.split(path.sep).join("/");
+  const protectedWorkspaceRoot = path.resolve(os.homedir(), "Documents", "Obsidian").split(path.sep).join("/");
   const forbidden = [
-    "/Documents/Obsidian/Command Centre/_state/",
+    `${protectedWorkspaceRoot}/`,
     "/.ssh/",
     "/.gnupg/",
     "/Library/Keychains/",
