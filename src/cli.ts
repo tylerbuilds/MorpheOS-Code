@@ -55,6 +55,7 @@ interface ParsedArgs {
 }
 
 const COMMANDS = [
+  "chat",
   "quickstart",
   "capabilities",
   "doctor",
@@ -101,6 +102,10 @@ const CORPUS_COMMANDS = [
   "supervise"
 ] as const;
 
+const CHAT_FLAGS: Record<string, readonly string[]> = {
+  chat: ["resume", "list", "model"]
+};
+
 const COMMAND_FLAGS: Record<string, readonly string[]> = {
   quickstart: ["output"],
   capabilities: ["profile"],
@@ -122,7 +127,8 @@ const COMMAND_FLAGS: Record<string, readonly string[]> = {
   "workload-benchmark": ["workload", "items", "concurrency", "transport", "model", "output"],
   "failure-canary": ["output"],
   "compare-models": ["models", "transport", "output"],
-  "scale-ramp": ["concurrency", "items", "output", "allow-live", "allow-live-scale"]
+  "scale-ramp": ["concurrency", "items", "output", "allow-live", "allow-live-scale"],
+  ...CHAT_FLAGS,
 };
 
 const CORPUS_FLAGS: Record<string, readonly string[]> = {
@@ -177,6 +183,7 @@ Usage:
   deepseek-harness <command> [options]
 
 Start here:
+  chat                    Start an interactive coding session
   quickstart              Run a local fake canary and return proof artefacts
   capabilities            Discover workflows, safety boundaries and MCP profiles as JSON
   doctor                  Inspect local paths and live-call prerequisites without secrets
@@ -362,6 +369,16 @@ async function main(): Promise<void> {
         output: optionalString(args.flags.output)
       });
       break;
+    case "chat": {
+      const { chatCommand } = await import("./agent/cli.js");
+      await chatCommand({
+        sessionId: optionalString(args.flags.resume),
+        model: optionalModel(args.flags.model) as string | undefined,
+        list: Boolean(args.flags.list),
+        prompt: args.positional.length > 0 ? args.positional.join(" ") : undefined,
+      });
+      return;
+    }
     default:
       throw unknownCommandError(args.command);
   }
