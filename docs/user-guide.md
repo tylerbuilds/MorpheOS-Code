@@ -71,6 +71,45 @@ npx --yes deepseek-harness@0.1.0 quickstart
 
 The package uses the existing unscoped name `deepseek-harness`.
 
+## Interactive Chat
+
+Start an interactive coding session with the DeepSeek Harness chat agent:
+
+```bash
+deepseek-harness chat
+```
+
+The chat agent can read, write, edit, and search files in your project. It uses
+DeepSeek V4 Flash by default for speed and cost efficiency.
+
+### Session management
+
+```bash
+deepseek-harness chat                     # New session in current directory
+deepseek-harness chat --resume            # Pick from recent sessions
+deepseek-harness chat --resume sess_abc   # Resume a specific session
+deepseek-harness chat --list              # List all sessions with cost info
+deepseek-harness chat --model pro         # Force Pro model for complex work
+deepseek-harness chat "fix the lint errors"  # One-shot, non-interactive
+```
+
+### Slash commands
+
+| Command | Action |
+|---------|--------|
+| `/help` | Show available commands |
+| `/model` | Show current model |
+| `/cost` | Show session cost and token usage |
+| `/list` | List recent sessions |
+| `/exit` | Exit chat |
+
+### Safety
+
+- Read, write, and edit operations execute directly with your file permissions.
+- Destructive operations (delete, git push, npm publish) require explicit approval.
+- Live DeepSeek API calls require `DEEPSEEK_API_KEY` in your environment.
+- Cost is tracked per session and visible with `/cost`.
+
 ## Choose an MCP profile
 
 The MCP server exposes three bounded profiles:

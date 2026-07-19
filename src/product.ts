@@ -36,7 +36,7 @@ export function productCapabilities(profile: McpProfile = "full"): Record<string
       name: packageMetadata.name,
       version: PRODUCT_VERSION,
       status: "public_alpha",
-      interfaces: ["cli", "mcp_stdio"]
+      interfaces: ["cli", "mcp_stdio", "chat_repl"]
     },
     active_mcp_profile: profile,
     mcp_profiles: MCP_PROFILES,
@@ -95,6 +95,13 @@ export function productCapabilities(profile: McpProfile = "full"): Record<string
         mcp_tool: "deepseek_harness_approval_packet",
         network: false,
         note: "Preparing a packet does not grant authority or make a live call."
+      },
+      {
+        id: "interactive_coding",
+        use_when: "You need an AI coding partner that reads, writes, edits, and searches your codebase.",
+        cli: "deepseek-harness chat",
+        network: "live_deepseek_required",
+        notes: "Requires DEEPSEEK_API_KEY. Cost tracked per session."
       }
     ],
     discovery: {
