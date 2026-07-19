@@ -68,6 +68,7 @@ export class HarnessStore {
     this.dbPath = path.join(stateDir, "deepseek-harness.sqlite");
     this.db = new DatabaseSync(this.dbPath);
     this.db.exec("PRAGMA busy_timeout = 5000;");
+    this.db.exec("PRAGMA foreign_keys = ON;");
     const existingSchemaVersion = this.readSchemaVersion();
     if (existingSchemaVersion > STATE_SCHEMA_VERSION) {
       this.db.close();
@@ -540,6 +541,8 @@ export class HarnessStore {
   }
 
   addMessage(sessionId: string, message: { role: string; content?: string | null; tool_calls_json?: string | null; tool_call_id?: string | null; token_count?: number | null }): number {
+    // Validate session exists before inserting (FK is enforced, but this gives a typed error)
+    this.getSession(sessionId);
     const now = new Date().toISOString();
     const result = this.db
       .prepare(
@@ -584,7 +587,14 @@ export class HarnessStore {
   }
 
   deleteSession(sessionId: string): void {
-    this.db.prepare("DELETE FROM messages WHERE session_id = ?").run(sessionId);
-    this.db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare("DELETE FROM messages WHERE session_id = ?").run(sessionId);
+      this.db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
   }
 }

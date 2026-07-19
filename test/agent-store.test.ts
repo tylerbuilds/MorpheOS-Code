@@ -97,6 +97,7 @@ test("updateSession modifies metadata", () => {
     assert.equal(session.summary, "fixed the auth bug");
     assert.equal(session.message_count, 12);
     assert.equal(session.total_tokens, 1500);
+    assert.equal(session.total_cost_usd, 0.003);
   } finally {
     store.close();
   }
@@ -111,6 +112,52 @@ test("deleteSession cascade-deletes messages", () => {
     store.deleteSession("sess-1");
     assert.throws(() => store.getSession("sess-1"), { code: "session_not_found" });
     assert.equal(store.getMessages("sess-1").length, 0);
+  } finally {
+    store.close();
+  }
+});
+
+test("countMessages returns correct count", () => {
+  const dir = tempStateDir();
+  const store = new HarnessStore(dir);
+  try {
+    store.createSession("sess-1", "/p", "deepseek-v4-flash");
+    assert.equal(store.countMessages("sess-1"), 0);
+    store.addMessage("sess-1", { role: "user", content: "a" });
+    store.addMessage("sess-1", { role: "assistant", content: "b" });
+    assert.equal(store.countMessages("sess-1"), 2);
+  } finally {
+    store.close();
+  }
+});
+
+test("addMessage with tool_calls_json round-trips correctly", () => {
+  const dir = tempStateDir();
+  const store = new HarnessStore(dir);
+  try {
+    store.createSession("sess-1", "/p", "deepseek-v4-flash");
+    const toolCalls = JSON.stringify([{ id: "call_1", type: "function", function: { name: "read_file", arguments: '{"file_path":"/tmp/test.txt"}' } }]);
+    store.addMessage("sess-1", { role: "assistant", content: "reading file", tool_calls_json: toolCalls, token_count: 42 });
+    const messages = store.getMessages("sess-1");
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0].tool_calls_json, toolCalls);
+    assert.equal(messages[0].token_count, 42);
+    // Verify JSON round-trips
+    const parsed = JSON.parse(messages[0].tool_calls_json!);
+    assert.equal(parsed[0].id, "call_1");
+  } finally {
+    store.close();
+  }
+});
+
+test("addMessage with non-existent session throws", () => {
+  const dir = tempStateDir();
+  const store = new HarnessStore(dir);
+  try {
+    assert.throws(
+      () => store.addMessage("nonexistent", { role: "user", content: "hello" }),
+      { code: "session_not_found" }
+    );
   } finally {
     store.close();
   }
