@@ -1,6 +1,6 @@
 {
   "name": "deepseek-harness",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local-first, safety-gated CLI and MCP harness for bounded DeepSeek batch and corpus workloads.",
   "license": "MIT",
   "author": "DeepSeek Harness contributors",

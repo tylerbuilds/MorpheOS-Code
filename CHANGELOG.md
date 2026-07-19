@@ -3,6 +3,36 @@
 All notable changes to this project are documented here. This file records
 release and release-candidate artefacts, not every commit or local proof run.
 
+## [0.2.0] - 2026-07-19
+
+### Added
+- **Interactive chat agent** (`deepseek-harness chat`): A Claude Code-style coding
+  agent powered by DeepSeek V4. Streaming REPL with 8 tools (read, write, edit,
+  search, list, run, delete), tiered safety execution, session persistence via
+  SQLite, cost tracking, and slash commands.
+- **Subagent dispatch**: Spawn isolated subagents for parallel task execution,
+  spec compliance review, and code quality review.
+- **Context management**: Sliding window with pinned project files (AGENTS.md,
+  etc.), automatic history truncation, and context summarisation triggers.
+- **Tool registry**: Pluggable tool system with Tier 1 (direct) and Tier 2
+  (approval-gated) execution. Shell injection and path traversal hardened.
+- **Cost-aware model routing**: Flash for 80% of turns, Pro for complex reasoning.
+  Real-time cost display with `/cost`.
+- **Adversarial test suite**: 652 adversarial tests across 17 modules. 25 bugs
+  found and fixed including 3 critical security vulnerabilities.
+- **Session management**: Create, resume, list, and fork chat sessions backed
+  by SQLite with foreign key enforcement.
+
+### Changed
+- Bumped store schema to v2 (adds sessions and messages tables).
+- Hardened tools against path traversal, shell injection, and type confusion.
+- Fixed stale session record caching, JSON parse crash guards, and resource
+  exhaustion patterns in context assembly.
+
+### Fixed
+- 25 bugs fixed via adversarial sweep (path traversal, shell injection, NaN/Infinity
+  bypass, non-deterministic ordering, callback error swallowing, and more).
+
 ## [0.1.0] - 2026-07-18
 
 Prepared the public npm CLI/MCP package release candidate. This version is not
