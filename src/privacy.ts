@@ -104,7 +104,15 @@ export function classifyManifestPrivacy(manifest: ManifestLike): PrivacyReport {
 }
 
 export function classifyOutboundPayload(itemId: string, payload: unknown): PrivacyReport {
-  const findings = classifyText(itemId, JSON.stringify(payload));
+  let serialized: string;
+  try {
+    // JSON.stringify returns undefined for undefined input, and throws on
+    // BigInt / circular references. We normalize both cases.
+    serialized = JSON.stringify(payload) ?? "null";
+  } catch {
+    serialized = "[unserializable payload]";
+  }
+  const findings = classifyText(itemId, serialized);
   const blockers = findings.filter((finding) => finding.severity === "blocker");
   const recommended = blockers.reduce<EgressClass>((current, finding) => {
     return CLASS_RANK[finding.category] > CLASS_RANK[current] ? finding.category : current;

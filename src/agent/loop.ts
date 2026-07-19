@@ -90,9 +90,10 @@ export async function agentTurn(
     "maxToolCalls",
   );
   const emit = toAgentEventSink(sinkOrCallbacks);
+  const input = String(userInput);
 
   throwIfAborted(options.signal);
-  addUserMessage(session, userInput);
+  addUserMessage(session, input);
   const context = buildContext(session);
   const model = selectModel(session.model);
   let turnText = "";

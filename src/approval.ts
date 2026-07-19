@@ -1,4 +1,5 @@
 import { createHash, verify } from "node:crypto";
+import { HarnessError } from "./errors.js";
 import type { ApprovalReceipt, RunManifest } from "./schema.js";
 import { buildDeepSeekRequest } from "./transport.js";
 
@@ -10,17 +11,32 @@ export interface ApprovalValidation {
 }
 
 export function canonicalJson(value: unknown): string {
+  return _canonicalJson(value, 0);
+}
+
+function _canonicalJson(value: unknown, depth: number): string {
+  if (depth > 200) {
+    throw new HarnessError(
+      "circular_reference",
+      "canonicalJson exceeded maximum nesting depth — probable circular reference"
+    );
+  }
+  if (value === undefined) {
+    // JSON.stringify(undefined) returns undefined (not a string).
+    // We return "null" to keep the contract that canonicalJson always returns a string.
+    return "null";
+  }
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value);
   }
   if (Array.isArray(value)) {
-    return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
+    return `[${value.map((item) => _canonicalJson(item, depth + 1)).join(",")}]`;
   }
   const record = value as Record<string, unknown>;
   return `{${Object.keys(record)
     .filter((key) => record[key] !== undefined)
     .sort()
-    .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+    .map((key) => `${JSON.stringify(key)}:${_canonicalJson(record[key], depth + 1)}`)
     .join(",")}}`;
 }
 
