@@ -20,6 +20,11 @@ import { createToolRegistry, ToolRegistry } from "./tools.js";
 export { callbacksToEventSink } from "./events.js";
 export type { AgentCallbacks, AgentEvent, AgentEventSink, TokenUsage } from "./events.js";
 
+export interface BeforeToolExecuteResult {
+  allowed: boolean;
+  reason: string;
+}
+
 export interface AgentTurnOptions {
   signal?: AbortSignal;
   maxToolRounds?: number;
@@ -28,6 +33,9 @@ export interface AgentTurnOptions {
   timeoutMs?: number;
   /** Override the session model for this turn (e.g. when using architect/editor pairing). */
   model?: string;
+  /** Callback invoked before each tool execution. When it returns { allowed: false },
+   *  the tool is skipped and a tool_end event is emitted with the reason as the error. */
+  beforeToolExecute?: (toolName: string, params: Record<string, unknown>) => Promise<BeforeToolExecuteResult>;
 }
 
 const DEFAULT_MAX_TOOL_ROUNDS = 8;
@@ -196,11 +204,23 @@ export async function agentTurn(
         name: toolCall.function.name,
         params,
       });
+
+      let adversaryBlock: BeforeToolExecuteResult | null = null;
+      if (!argumentError && options.beforeToolExecute) {
+        adversaryBlock = await options.beforeToolExecute(toolCall.function.name, params);
+      }
+
       const execution = argumentError
         ? {
             content: argumentError,
             summary: `Invalid arguments: ${toolCall.function.name}`,
             error: "invalid_tool_arguments",
+          }
+        : adversaryBlock && !adversaryBlock.allowed
+        ? {
+            content: `Tool "${toolCall.function.name}" was blocked by the adversary: ${adversaryBlock.reason}`,
+            summary: `BLOCKED: ${toolCall.function.name}`,
+            error: adversaryBlock.reason,
           }
         : await registry.execute(
             toolCall.function.name,

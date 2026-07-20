@@ -5,6 +5,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { exec } from "node:child_process";
 import { HarnessError } from "../errors.js";
+import { CheckpointManager } from "./checkpoint.js";
 
 // ── Path safety ──
 
@@ -22,6 +23,18 @@ function resolveSafePath(filePath: string, workspaceRoot: string): string {
     );
   }
   return resolved;
+}
+
+// ── Checkpoint wiring ──
+
+let _checkpointManager: CheckpointManager | null = null;
+
+export function setCheckpointManager(cm: CheckpointManager): void {
+  _checkpointManager = cm;
+}
+
+export function getCheckpointManager(): CheckpointManager | null {
+  return _checkpointManager;
 }
 
 export interface ToolParam {
@@ -276,6 +289,9 @@ function makeWriteFileTool(): Tool {
       const dir = path.dirname(resolved);
       fs.mkdirSync(dir, { recursive: true });
       const existed = fs.existsSync(resolved);
+      if (existed) {
+        _checkpointManager?.snapshot(resolved, "write_file", `write_file on ${path.basename(resolved)}`);
+      }
       fs.writeFileSync(resolved, content, "utf8");
       return {
         content: existed ? `Overwrote ${resolved}` : `Created ${resolved}`,
@@ -314,6 +330,7 @@ function makeEditFileTool(): Tool {
         throw new HarnessError("edit_string_not_unique", "old_string matches multiple locations in the file");
       }
       const newContent = content.slice(0, firstIndex) + newStr + content.slice(firstIndex + oldStr.length);
+      _checkpointManager?.snapshot(resolved, "edit_file", `edit_file on ${path.basename(resolved)}`);
       fs.writeFileSync(resolved, newContent, "utf8");
       return {
         content: `Edited ${resolved}: replaced ${oldStr.length} chars with ${newStr.length} chars`,
@@ -595,6 +612,7 @@ function makeDeleteFileTool(): Tool {
     async execute(params, cwd): Promise<ToolResult> {
       const filePath = String(params.file_path);
       const resolved = resolveSafePath(filePath, cwd);
+      _checkpointManager?.snapshot(resolved, "delete_file", `delete_file on ${path.basename(resolved)}`);
       fs.unlinkSync(resolved);
       return {
         content: `Deleted ${resolved}`,

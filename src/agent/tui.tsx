@@ -1,11 +1,13 @@
 import { useMemo, useReducer, useRef, useState } from "react";
 import { Box, Text, render, useApp, useInput, useWindowSize } from "ink";
+import path from "node:path";
 import { HarnessError } from "../errors.js";
 import { defaultArtifactRoot } from "../paths.js";
 import { agentTurn } from "./loop.js";
 import { formatCorpusJob, loadCorpusJobs, type CorpusJob } from "./jobs.js";
 import { listSessions, updateSessionSummary, type AgentSession } from "./session.js";
-import { createToolRegistry, type ToolApprovalRequest, type ToolRegistry } from "./tools.js";
+import { createToolRegistry, setCheckpointManager, type ToolApprovalRequest, type ToolRegistry } from "./tools.js";
+import { CheckpointManager } from "./checkpoint.js";
 import { createSessionApprovalGate, formatApprovalRequest, type ApprovalChoice } from "./cli.js";
 import { composerSegments, initialTuiState, shouldExitOnCtrlD, transcriptLines, tuiReducer } from "./tui-state.js";
 import { bold, dim, grey, gold } from "./theme.js";
@@ -14,6 +16,7 @@ import { McpRegistry, type McpServerConfig, type McpToolDefinition } from "./mcp
 import { MemoryManager } from "./memory.js";
 import { BackgroundManager, type BgJob } from "./background.js";
 import { pairedTurn, type PairingConfig } from "./pairing.js";
+import { reviewToolCall, DEFAULT_ADVERSARY_CONFIG, type AdversaryConfig } from "./adversary.js";
 
 const MOTD = [
   `⚡ ${bold("MorpheOS Code")} — ${dim("Captain Zeus at the helm")}`,
@@ -32,7 +35,7 @@ function zeusError(raw: string): string {
   return raw;
 }
 
-type SlashCommand = { readonly kind: "exit" } | { readonly kind: "clear" } | { readonly kind: "message"; readonly message: string } | { readonly kind: "jobs"; readonly jobs: readonly CorpusJob[] } | { readonly kind: "thinking" } | { readonly kind: "model" } | { readonly kind: "settings" } | { readonly kind: "mcp-list" } | { readonly kind: "mcp-add"; readonly config: McpServerConfig } | { readonly kind: "mcp-remove"; readonly name: string } | { readonly kind: "permit"; readonly command: "add" | "remove" | "list"; readonly rule?: PermissionRule; readonly pattern?: string } | { readonly kind: "memory-show" } | { readonly kind: "memory-save"; readonly entry: string } | { readonly kind: "memory-topic"; readonly name: string } | { readonly kind: "memory-topics" } | { readonly kind: "bg-list" } | { readonly kind: "bg-cancel"; readonly id: string } | { readonly kind: "pair"; readonly action: "on" | "off" | "status" };
+type SlashCommand = { readonly kind: "exit" } | { readonly kind: "clear" } | { readonly kind: "message"; readonly message: string } | { readonly kind: "jobs"; readonly jobs: readonly CorpusJob[] } | { readonly kind: "thinking" } | { readonly kind: "model" } | { readonly kind: "settings" } | { readonly kind: "mcp-list" } | { readonly kind: "mcp-add"; readonly config: McpServerConfig } | { readonly kind: "mcp-remove"; readonly name: string } | { readonly kind: "permit"; readonly command: "add" | "remove" | "list"; readonly rule?: PermissionRule; readonly pattern?: string } | { readonly kind: "memory-show" } | { readonly kind: "memory-save"; readonly entry: string } | { readonly kind: "memory-topic"; readonly name: string } | { readonly kind: "memory-topics" } | { readonly kind: "bg-list" } | { readonly kind: "bg-cancel"; readonly id: string } | { readonly kind: "pair"; readonly action: "on" | "off" | "status" } | { readonly kind: "adversary"; readonly action: "on" | "off" | "add" | "status"; readonly policy?: string } | { readonly kind: "undo"; readonly filePath?: string } | { readonly kind: "rewind"; readonly checkpointId: string } | { readonly kind: "checkpoints" };
 
 export async function runTui(session: AgentSession, apiKey: string): Promise<void> {
   const instance = render(<ChatTui session={session} apiKey={apiKey} />, { alternateScreen: true, exitOnCtrlC: false, patchConsole: false });
@@ -53,8 +56,11 @@ function ChatTui({ session, apiKey }: { readonly session: AgentSession; readonly
   const [showSettings, setShowSettings] = useState(false);
   const [settingsIdx, setSettingsIdx] = useState(0);
   const bgManager = useRef(new BackgroundManager());
+  const checkpointManager = useRef(new CheckpointManager(session.cwd));
+  const [checkpointCount, setCheckpointCount] = useState(0);
   const [bgJobs, setBgJobs] = useState<readonly BgJob[]>([]);
   const [pairing, setPairing] = useState<PairingConfig>({ enabled: false, architect: "deepseek-v4-pro", editor: "deepseek-v4-flash" });
+  const [adversary, setAdversary] = useState<AdversaryConfig>(DEFAULT_ADVERSARY_CONFIG);
   const approvalResolver = useRef<((choice: ApprovalChoice) => void) | null>(null);
   const turnController = useRef<AbortController | null>(null);
   const exitAfterTurn = useRef(false);
@@ -233,6 +239,63 @@ function ChatTui({ session, apiKey }: { readonly session: AgentSession; readonly
           }
           break;
         }
+        case "adversary": {
+          if (command.action === "on" && command.policy) {
+            const next: AdversaryConfig = { enabled: true, policies: [command.policy], model: adversary.model };
+            setAdversary(next);
+            dispatch({ type: "setAdversary", active: true, policyCount: 1 });
+            dispatch({ type: "message", message: `Adversary engaged. Policy: "${command.policy}"` });
+          } else if (command.action === "add" && command.policy) {
+            const next: AdversaryConfig = { ...adversary, policies: [...adversary.policies, command.policy] };
+            setAdversary(next);
+            dispatch({ type: "setAdversary", active: true, policyCount: next.policies.length });
+            dispatch({ type: "message", message: `Policy added (${next.policies.length} total): "${command.policy}"` });
+          } else if (command.action === "off") {
+            setAdversary({ ...adversary, enabled: false });
+            dispatch({ type: "setAdversary", active: false, policyCount: adversary.policies.length });
+            dispatch({ type: "message", message: "Adversary disengaged. Standing down." });
+          } else if (command.action === "status") {
+            if (adversary.enabled && adversary.policies.length > 0) {
+              const policyLines = adversary.policies.map((p, i) => `  ${i + 1}. ${p}`).join("\n");
+              dispatch({ type: "message", message: `Adversary: ACTIVE (${adversary.policies.length} policies)\n${policyLines}` });
+            } else {
+              dispatch({ type: "message", message: "Adversary: OFF" });
+            }
+          }
+          break;
+        }
+        case "undo": {
+          const undone = checkpointManager.current.undo(command.filePath);
+          if (undone) {
+            dispatch({ type: "message", message: `Undid: ${undone.toolCall} → ${path.basename(undone.filePath)} (checkpoint ${undone.id})` });
+          } else {
+            dispatch({ type: "message", message: command.filePath
+              ? `No checkpoints found for: ${command.filePath}`
+              : "No checkpoints to undo, Captain." });
+          }
+          setCheckpointCount(checkpointManager.current.count());
+          break;
+        }
+        case "rewind": {
+          const restored = checkpointManager.current.restore(command.checkpointId);
+          const ck = checkpointManager.current.findCheckpoint(command.checkpointId);
+          if (restored && ck) {
+            dispatch({ type: "message", message: `Rewound ${path.basename(ck.filePath)} to checkpoint ${ck.id} (${ck.toolCall} @ ${ck.timestamp})` });
+          } else {
+            dispatch({ type: "message", message: `Checkpoint not found: ${command.checkpointId}` });
+          }
+          break;
+        }
+        case "checkpoints": {
+          const list = checkpointManager.current.list(20);
+          if (list.length === 0) {
+            dispatch({ type: "message", message: "No checkpoints yet, Captain. Mutate some files and check back." });
+          } else {
+            const lines = list.map((c) => `${c.id}  ${c.toolCall}  ${path.basename(c.filePath)}  ${c.timestamp}`);
+            dispatch({ type: "message", message: `Checkpoints (${list.length}):\n${lines.join("\n")}` });
+          }
+          break;
+        }
         default: assertNever(command);
       }
       return;
@@ -244,6 +307,17 @@ function ChatTui({ session, apiKey }: { readonly session: AgentSession; readonly
     }
     const controller = new AbortController();
     turnController.current = controller;
+    setCheckpointManager(checkpointManager.current);
+
+    // Build adversary beforeToolExecute callback
+    const currentAdversary = adversary;
+    const beforeToolExecute = currentAdversary.enabled && currentAdversary.policies.length > 0
+      ? async (toolName: string, params: Record<string, unknown>) => {
+          const verdict = await reviewToolCall(currentAdversary, toolName, params);
+          return { allowed: verdict.allowed, reason: verdict.reasoning };
+        }
+      : undefined;
+
     if (pairing.enabled) {
       void pairedTurn(session, apiKey, input, pairing, {
         onText: (text) => dispatch({ type: "event", event: { type: "text_delta", delta: text } }),
@@ -253,6 +327,7 @@ function ChatTui({ session, apiKey }: { readonly session: AgentSession; readonly
           dispatch({ type: "event", event: { type: "turn_complete", text: result.result, reasoningContent: "", toolCalls: 0, toolRounds: 0, tokens: result.totalTokens } });
           if (session.record.message_count <= 5) updateSessionSummary(session, `${input.slice(0, 80)}${input.length > 80 ? "..." : ""}`);
           setJobs(loadCorpusJobs(defaultArtifactRoot()));
+          setCheckpointCount(checkpointManager.current.count());
         })
         .catch((error: unknown) => dispatch({ type: "error", message: zeusError(controller.signal.aborted ? "aborted" : error instanceof Error ? error.message : String(error)) }))
         .finally(() => { turnController.current = null; if (exitAfterTurn.current) exit(); });
@@ -260,10 +335,12 @@ function ChatTui({ session, apiKey }: { readonly session: AgentSession; readonly
       void agentTurn(session, apiKey, input, (event) => dispatch({ type: "event", event }), registry, {
         signal: controller.signal,
         baseUrl: process.env.DEEPSEEK_API_BASE_URL,
+        beforeToolExecute,
       })
         .then(() => {
           if (session.record.message_count <= 5) updateSessionSummary(session, `${input.slice(0, 80)}${input.length > 80 ? "..." : ""}`);
           setJobs(loadCorpusJobs(defaultArtifactRoot()));
+          setCheckpointCount(checkpointManager.current.count());
         })
         .catch((error: unknown) => dispatch({ type: "error", message: zeusError(controller.signal.aborted ? "aborted" : error instanceof Error ? error.message : String(error)) }))
         .finally(() => { turnController.current = null; if (exitAfterTurn.current) exit(); });
@@ -362,12 +439,15 @@ function ChatTui({ session, apiKey }: { readonly session: AgentSession; readonly
         <Text bold color="yellow">Captain's Log</Text>
         <Text dimColor wrap="truncate-end">{session.id}</Text>
         <Text>{pairing.enabled ? `${pairing.architect} → ${pairing.editor}` : model === "deepseek-v4-pro" ? "Pro" : "Flash"} engines</Text>
+        {adversary.enabled ? <Text color="yellow">🛡 Adversary: ON ({adversary.policies.length})</Text> : null}
         <Text>£{session.record.total_cost_usd.toFixed(6)}</Text>
         <Text>{session.record.total_tokens} tokens</Text>
         <Text bold color="yellow">Cargo Bay</Text>
         {jobs.length === 0 ? <Text dimColor>empty</Text> : jobs.map((job) => <Text key={job.jobId} wrap="truncate-end">{formatCorpusJob(job)}</Text>)}
         <Text bold color="yellow">Background Ops</Text>
         <Text dimColor>Bg: {bgManager.current.runningCount()} running, {bgManager.current.completedCount()} done</Text>
+        <Text bold color="yellow">Checkpoints</Text>
+        <Text dimColor>CP: {checkpointCount}</Text>
       </Box> : null}
     </Box>
     {showSettings ? <SettingsPanel
@@ -392,13 +472,15 @@ function ChatTui({ session, apiKey }: { readonly session: AgentSession; readonly
 function slashCommand(input: string, session: AgentSession, showThinking: boolean): SlashCommand {
   const command = input.slice(1).split(/\s+/, 1)[0] ?? "";
   switch (command) {
-    case "help": return { kind: "message", message: `/help  /clear  /settings  /model flash|pro  /pair on|off|status  /cost  /sessions  /jobs  /thinking  /permit  /mcp  /memory  /bg  /exit
+    case "help": return { kind: "message", message: `/help  /clear  /settings  /model flash|pro  /pair on|off|status  /adversary  /cost  /sessions  /jobs  /thinking  /permit  /mcp  /memory  /bg  /undo  /rewind  /checkpoints  /exit
 ${grey("Captain's bridge commands. All ship-shape and Bristol fashion.")}
 ${grey("Pair: /pair on — enable architect (Pro plans) / editor (Flash executes)")}
+${grey("Adversary: /adversary on <policy>  /adversary add <policy>  /adversary off  /adversary status")}
 ${grey("MCP: /mcp add <name> <command>  /mcp list  /mcp remove <name>")}
 ${grey("Permit: /permit  /permit add Tool(pattern) allow|ask|deny  /permit remove Tool(pattern)")}
 ${grey("Memory: /memory [show]  /memory save <entry>  /memory topic <name>  /memory topics")}
-${grey("Background: /bg list  /bg cancel <id>")}` };
+${grey("Background: /bg list  /bg cancel <id>")}
+${grey("Checkpoint: /undo [file]  /rewind <id>  /checkpoints — rollback file edits")}` };
     case "clear": return { kind: "clear" };
     case "cost": return { kind: "message", message: `Fuel consumed: £${session.record.total_cost_usd.toFixed(6)} (${session.record.total_tokens} tokens across ${session.record.message_count} messages)` };
     case "sessions": return { kind: "message", message: listSessions(session.store, 10).map((item) => `${item.id === session.id ? "*" : " "} ${item.id} ${item.model} £${item.total_cost_usd.toFixed(4)} ${item.summary || "-"}`).join("\n") || "No previous voyages found." };
@@ -412,6 +494,10 @@ ${grey("Background: /bg list  /bg cancel <id>")}` };
     case "bg": return parseBgCommand(input);
     case "memory": return parseMemoryCommand(input);
     case "pair": return parsePairCommand(input);
+    case "adversary": return parseAdversaryCommand(input);
+    case "undo": return parseUndoCommand(input);
+    case "rewind": return parseRewindCommand(input);
+    case "checkpoints": return { kind: "checkpoints" as const };
     default: return { kind: "message", message: `Unknown order: /${command}. Type /help for available commands, Captain.` };
   }
 }
@@ -517,6 +603,44 @@ function parsePairCommand(input: string): SlashCommand {
   if (sub === "status") return { kind: "pair", action: "status" };
 
   return { kind: "message", message: "Usage: /pair on | /pair off | /pair status" };
+}
+
+/** Parse /adversary on|off|add|status arguments. */
+function parseAdversaryCommand(input: string): SlashCommand {
+  const parts = input.split(/\s+/).slice(1); // skip "/adversary"
+  const sub = parts[0]?.toLowerCase() ?? "status";
+
+  if (sub === "on") {
+    const policy = parts.slice(1).join(" ").trim();
+    if (!policy) return { kind: "message", message: "Usage: /adversary on <policy statement>" };
+    return { kind: "adversary", action: "on", policy };
+  }
+
+  if (sub === "add") {
+    const policy = parts.slice(1).join(" ").trim();
+    if (!policy) return { kind: "message", message: "Usage: /adversary add <policy statement>" };
+    return { kind: "adversary", action: "add", policy };
+  }
+
+  if (sub === "off") return { kind: "adversary", action: "off" };
+  if (sub === "status") return { kind: "adversary", action: "status" };
+
+  return { kind: "message", message: "Usage: /adversary on <policy> | /adversary add <policy> | /adversary off | /adversary status" };
+}
+
+/** Parse /undo [file_path] */
+function parseUndoCommand(input: string): SlashCommand {
+  const parts = input.split(/\s+/).slice(1); // skip "/undo"
+  const filePath = parts.join(" ").trim();
+  return filePath ? { kind: "undo", filePath } : { kind: "undo" };
+}
+
+/** Parse /rewind <checkpoint-id> */
+function parseRewindCommand(input: string): SlashCommand {
+  const parts = input.split(/\s+/).slice(1); // skip "/rewind"
+  const checkpointId = parts[0] ?? "";
+  if (!checkpointId) return { kind: "message", message: "Usage: /rewind <checkpoint-id>. Use /checkpoints to list them." };
+  return { kind: "rewind", checkpointId };
 }
 
 /** Parse /memory [show|save|topic|topics] arguments. */

@@ -16,6 +16,8 @@ export type TuiState = {
   readonly showThinking: boolean;
   readonly rules: readonly PermissionRule[];
   readonly bgJobs: readonly BgJob[];
+  readonly adversaryActive: boolean;
+  readonly adversaryPolicyCount: number;
 };
 
 export type TuiAction =
@@ -27,9 +29,10 @@ export type TuiAction =
   | { readonly type: "toggleThinking" }
   | { readonly type: "addRule"; readonly rule: PermissionRule }
   | { readonly type: "removeRule"; readonly pattern: string }
-  | { readonly type: "bgUpdate"; readonly jobs: readonly BgJob[] };
+  | { readonly type: "bgUpdate"; readonly jobs: readonly BgJob[] }
+  | { readonly type: "setAdversary"; readonly active: boolean; readonly policyCount: number };
 
-export function initialTuiState(): TuiState { return { entries: [], currentText: "", currentReasoning: "", status: "idle", tokens: 0, showThinking: false, rules: [], bgJobs: [] }; }
+export function initialTuiState(): TuiState { return { entries: [], currentText: "", currentReasoning: "", status: "idle", tokens: 0, showThinking: false, rules: [], bgJobs: [], adversaryActive: false, adversaryPolicyCount: 0 }; }
 
 export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
   switch (action.type) {
@@ -51,6 +54,8 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
       return { ...state, rules: state.rules.filter(r => r.pattern !== action.pattern) };
     case "bgUpdate":
       return { ...state, bgJobs: action.jobs };
+    case "setAdversary":
+      return { ...state, adversaryActive: action.active, adversaryPolicyCount: action.policyCount };
     case "event":
       return reduceAgentEvent(state, action.event);
     default:
