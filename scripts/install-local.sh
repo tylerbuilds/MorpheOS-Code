@@ -193,6 +193,7 @@ normalise_paths() {
   ARTIFACT_DIR="$(resolve_path "$ARTIFACT_DIR")"
   CLI_LAUNCHER="${INSTALL_DIR}/deepseek-harness"
   MCP_LAUNCHER="${INSTALL_DIR}/deepseek-harness-mcp"
+  MORPHEOS_LAUNCHER="${INSTALL_DIR}/morpheos"
   APP_DIR="${INSTALL_DIR}/deepseek-harness-app"
   APP_MARKER_PATH="${APP_DIR}/.deepseek-harness-installer"
   CLI_ENTRYPOINT="${REPO_ROOT}/dist/src/cli.js"
@@ -325,14 +326,17 @@ check_target() {
 preflight_install() {
   local cli_exists=0
   local mcp_exists=0
+  local morpheos_exists=0
   path_exists "$CLI_LAUNCHER" && cli_exists=1
   path_exists "$MCP_LAUNCHER" && mcp_exists=1
+  path_exists "$MORPHEOS_LAUNCHER" && morpheos_exists=1
   if [ "$cli_exists" -ne "$mcp_exists" ] && [ "$FORCE" -eq 0 ]; then
     err "Refusing to continue with a partial launcher set; both launchers must be present or absent (use --force to repair): $INSTALL_DIR"
     exit 1
   fi
   check_target "$CLI_LAUNCHER" launcher
   check_target "$MCP_LAUNCHER" launcher
+  check_target "$MORPHEOS_LAUNCHER" launcher
   check_target "$CONFIG_PATH" JSON
   check_target "$CODEX_CONFIG_PATH" TOML
   if path_exists "$APP_DIR"; then
@@ -448,6 +452,17 @@ export DEEPSEEK_HARNESS_MCP_PROFILE=$profile_q
 export DEEPSEEK_HARNESS_INSTALLER_MARKER=$marker_q
 cd $app_q
 exec node ${app_q}/dist/src/mcp.js
+EOF
+  atomic_write "$MORPHEOS_LAUNCHER" 0755 <<EOF
+#!/usr/bin/env bash
+# $MARKER
+set -euo pipefail
+export DEEPSEEK_HARNESS_STATE_DIR=$state_q
+export DEEPSEEK_HARNESS_ARTIFACT_DIR=$artifact_q
+export DEEPSEEK_HARNESS_MCP_PROFILE=$profile_q
+export DEEPSEEK_HARNESS_INSTALLER_MARKER=$marker_q
+cd $app_q
+exec node ${app_q}/bin/morpheos.js "\$@"
 EOF
   ok "Installed launchers in $INSTALL_DIR"
 }
@@ -688,6 +703,7 @@ uninstall() {
   uninstall_runtime
   uninstall_file "$CLI_LAUNCHER" launcher
   uninstall_file "$MCP_LAUNCHER" launcher
+  uninstall_file "$MORPHEOS_LAUNCHER" launcher
   uninstall_file "$CONFIG_PATH" JSON
   uninstall_file "$CODEX_CONFIG_PATH" TOML
   if [ "$DRY_RUN" -eq 0 ]; then
@@ -761,6 +777,7 @@ main() {
   ok "Install complete"
   info "MCP command: $MCP_LAUNCHER"
   info "CLI command: $CLI_LAUNCHER"
+  info "Chat TUI:  $MORPHEOS_LAUNCHER"
   info "Smoke: run $MCP_LAUNCHER with an MCP client"
 }
 

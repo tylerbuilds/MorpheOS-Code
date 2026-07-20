@@ -1,21 +1,24 @@
 {
-  "name": "deepseek-harness",
-  "version": "0.2.0",
-  "description": "Local-first, safety-gated CLI and MCP harness for bounded DeepSeek batch and corpus workloads.",
+  "name": "morpheos-code",
+  "version": "1.0.0",
+  "description": "Captain Zeus at the helm. A first-class coding TUI powered by DeepSeek V4.",
   "license": "MIT",
-  "author": "DeepSeek Harness contributors",
+  "author": "MorpheOS Ltd",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tylerbuilds/deepseek-harness.git"
+    "url": "git+https://github.com/tylerbuilds/MorpheOS-Code.git"
   },
   "bugs": {
-    "url": "https://github.com/tylerbuilds/deepseek-harness/issues"
+    "url": "https://github.com/tylerbuilds/MorpheOS-Code/issues"
   },
-  "homepage": "https://github.com/tylerbuilds/deepseek-harness#readme",
+  "homepage": "https://github.com/tylerbuilds/MorpheOS-Code#readme",
   "keywords": [
     "deepseek",
     "mcp",
     "llm",
+    "coding-agent",
+    "tui",
+    "cli",
     "batch-processing",
     "ocr",
     "translation",
@@ -23,6 +26,8 @@
   ],
   "type": "module",
   "bin": {
+    "morpheos": "./bin/morpheos.js",
+    "morpheos-code": "./bin/morpheos.js",
     "deepseek-harness": "./dist/src/cli.js",
     "deepseek-harness-mcp": "./dist/src/mcp.js"
   },
