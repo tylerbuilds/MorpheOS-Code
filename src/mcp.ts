@@ -48,6 +48,7 @@ import { buildTranslationCorpusManifest } from "./corpus_translation.js";
 import { toErrorPayload } from "./errors.js";
 import { parseMcpProfile, productCapabilities } from "./product.js";
 import { approvalReceiptSchema, modelSchema, runManifestSchema, thinkingSchema } from "./schema.js";
+import { chatOutputSchema } from "./agent/agent-mode.js";
 
 const server = new McpServer({
   name: "deepseek-harness",
@@ -1050,6 +1051,25 @@ server.registerTool(
       })
     )
 );
+
+  server.registerTool(
+    "morpheos_chat",
+    {
+      title: "MorpheOS Code Chat",
+      description: "Send a prompt to Captain Zeus and get a structured response with tool calls, cost, and session continuity.",
+      inputSchema: {
+        prompt: z.string().describe("The prompt to send to the coding agent"),
+        session: z.string().optional().describe("Session ID for continuity across calls"),
+        model: z.enum(["deepseek-v4-flash", "deepseek-v4-pro"]).optional().describe("Model to use (default: flash)"),
+      },
+      outputSchema: chatOutputSchema,
+      annotations: liveWriteAnnotations,
+    },
+    async ({ prompt, session, model }) => {
+      const { agentChat } = await import("./agent/agent-mode.js");
+      return wrap(() => agentChat({ prompt, session, model }));
+    }
+  );
 
 }
 

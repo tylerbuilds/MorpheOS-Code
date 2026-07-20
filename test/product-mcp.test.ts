@@ -28,7 +28,8 @@ const localWriteTools = new Set([
   "deepseek_harness_workload_benchmark",
   "deepseek_harness_failure_canary",
   "deepseek_harness_compare_models",
-  "deepseek_harness_scale_ramp"
+  "deepseek_harness_scale_ramp",
+  "morpheos_chat"
 ]);
 
 const liveCapableTools = new Set([
@@ -37,7 +38,8 @@ const liveCapableTools = new Set([
   "deepseek_harness_corpus_start",
   "deepseek_harness_corpus_resume",
   "deepseek_harness_corpus_work",
-  "deepseek_harness_scale_ramp"
+  "deepseek_harness_scale_ramp",
+  "morpheos_chat"
 ]);
 
 type JsonSchema = {

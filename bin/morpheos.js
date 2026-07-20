@@ -1,26 +1,50 @@
 #!/usr/bin/env node
 // MorpheOS Code — Captain Zeus at the helm
-// Launch the TUI directly: `morpheos` or `morpheos --resume sess_abc`
+// Launch: `morpheos` (TUI) or `morpheos --json "prompt"` (agent mode)
 
 import { HarnessStore } from "../dist/src/store.js";
-import { createSession, resumeSession } from "../dist/src/agent/session.js";
+import { createSession, resumeSession, listSessions } from "../dist/src/agent/session.js";
 import { getApiKey } from "../dist/src/agent/stream.js";
-import { runTui } from "../dist/src/agent/tui.js";
 
 const STATE_DIR = process.env.DEEPSEEK_HARNESS_STATE_DIR ?? ".state";
 const args = process.argv.slice(2);
 
+function flag(name: string): string | undefined {
+  const idx = args.indexOf(`--${name}`);
+  return idx >= 0 ? args[idx + 1] : undefined;
+}
+
+function hasFlag(name: string): boolean {
+  return args.includes(`--${name}`);
+}
+
+function positionalArgs(): string[] {
+  const skip = new Set(["--help", "-h", "--list", "--json", "--session", "--model"]);
+  const consumed = new Set<string>();
+  for (const name of ["session", "model"]) {
+    const idx = args.indexOf(`--${name}`);
+    if (idx >= 0) {
+      consumed.add(idx.toString());
+      consumed.add((idx + 1).toString());
+    }
+  }
+  return args.filter((a, i) => !skip.has(a) && !consumed.has(i.toString()));
+}
+
 async function main() {
-  // --help
-  if (args.includes("--help") || args.includes("-h")) {
+  if (hasFlag("help") || args.includes("-h")) {
     process.stdout.write(`⚡ MorpheOS Code — Captain Zeus at the helm
 
-Usage:
-  morpheos                 Start a new session
-  morpheos --resume ID     Resume a session
-  morpheos --list          List recent sessions
-  morpheos --model pro     Use Pro engines
-  morpheos "fix the bug"   One-shot (plain mode)
+Usage (human):
+  morpheos                        Start TUI session
+  morpheos --resume ID            Resume a session in TUI
+  morpheos --list                 List recent sessions
+  morpheos --model pro            Use Pro engines (TUI)
+
+Usage (agent):
+  morpheos --json "fix the bug"               One-shot, JSON output
+  morpheos --json "refactor auth" --session my-project   Named session
+  morpheos --json "review this" --model pro              Use Pro
 
 Requirements:
   DEEPSEEK_API_KEY         Set in your environment
@@ -32,11 +56,10 @@ Get a key: https://platform.deepseek.com/api_keys
   }
 
   const store = new HarnessStore(STATE_DIR);
-
   try {
     // --list
-    if (args.includes("--list")) {
-      const sessions = store.listSessions(20);
+    if (hasFlag("list")) {
+      const sessions = listSessions(store, 20);
       if (sessions.length === 0) {
         process.stdout.write("No previous voyages found.\n");
       } else {
@@ -47,32 +70,37 @@ Get a key: https://platform.deepseek.com/api_keys
       return;
     }
 
-    // Resolve model
-    const modelIdx = args.indexOf("--model");
-    const model = modelIdx >= 0 ? (args[modelIdx + 1] === "pro" ? "deepseek-v4-pro" : "deepseek-v4-flash") : "deepseek-v4-flash";
-
-    // Create or resume session
-    const resumeIdx = args.indexOf("--resume");
-    const session = resumeIdx >= 0
-      ? resumeSession(store, args[resumeIdx + 1])
-      : createSession(store, process.cwd(), model);
-
     const apiKey = getApiKey();
     if (!apiKey) {
       process.stderr.write("DEEPSEEK_API_KEY is not set. Grab one at https://platform.deepseek.com/api_keys\n");
       process.exit(1);
     }
 
-    // One-shot mode: prompt as positional arg
-    const prompt = args.filter(a => !a.startsWith("--") && a !== args[resumeIdx + 1]).join(" ");
-    if (prompt && !args.includes("--resume") && resumeIdx < 0) {
-      // One-shot plain mode
-      const { chatCommand } = await import("../dist/src/agent/cli.js");
-      await chatCommand({ prompt, model });
-      return;
+    // ── Agent mode (--json) ──
+    if (hasFlag("json")) {
+      const { agentChat } = await import("../dist/src/agent/agent-mode.js");
+      const prompt = positionalArgs().join(" ");
+      if (!prompt) {
+        process.stderr.write("Error: --json requires a prompt argument.\nUsage: morpheos --json \"your prompt here\"\n");
+        process.exit(2);
+      }
+      const result = await agentChat({
+        prompt,
+        session: flag("session"),
+        model: flag("model") === "pro" ? "deepseek-v4-pro" : flag("model") === "flash" ? "deepseek-v4-flash" : undefined,
+      });
+      process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+      process.exit(result.ok ? 0 : 1);
     }
 
-    // Full TUI
+    // ── Human mode (TUI) ──
+    const sessionId = flag("resume");
+    const model = flag("model") === "pro" ? "deepseek-v4-pro" : "deepseek-v4-flash";
+    const session = sessionId
+      ? resumeSession(store, sessionId)
+      : createSession(store, process.cwd(), model);
+
+    const { runTui } = await import("../dist/src/agent/tui.js");
     await runTui(session, apiKey);
   } finally {
     store.close();
