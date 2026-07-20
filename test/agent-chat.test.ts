@@ -68,7 +68,7 @@ test("buildContext assembles system prompt, pinned files, and history", () => {
     assert.ok(ctx.messages.length >= 3); // system prompt + project context + user message
     const systemMsg = ctx.messages[0];
     assert.equal(systemMsg.role, "system");
-    assert.ok(systemMsg.content?.includes("DeepSeek Harness Chat"));
+    assert.ok(systemMsg.content?.includes("Captain Zeus"));
     assert.ok(ctx.messages.some((m) => m.content?.includes("Test Project")));
     assert.ok(ctx.messages.some((m) => m.content === "hello"));
   } finally {

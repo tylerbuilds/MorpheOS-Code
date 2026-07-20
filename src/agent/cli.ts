@@ -237,9 +237,13 @@ function askPlainApproval(rl: readline.Interface, request: ToolApprovalRequest):
 }
 
 function writePlainHeader(session: AgentSession, resumed: boolean): void {
-  process.stdout.write(resumed ? `Resumed session: ${session.id}\n` : "DeepSeek Harness Chat v0.1.0\n");
-  process.stdout.write(`Session: ${session.id}\nModel: ${session.model}  CWD: ${session.cwd}\n`);
-  process.stdout.write("Type /help for commands, /exit to quit.\n");
+  if (resumed) {
+    process.stdout.write(`Resumed voyage: ${session.id}\n`);
+  } else {
+    process.stdout.write("⚡ MorpheOS Code — Captain Zeus at the helm\n\n");
+  }
+  process.stdout.write(`Log: ${session.id}  ·  ${session.model}  ·  ${session.cwd}\n`);
+  process.stdout.write("Type /help for orders, /exit to leave the bridge.\n");
 }
 
 function writeSessions(store: HarnessStore, limit: number, currentId?: string): void {

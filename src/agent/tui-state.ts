@@ -71,14 +71,14 @@ function append(entries: readonly TranscriptEntry[], ...next: readonly Transcrip
 
 function prefix(kind: EntryKind): string {
   switch (kind) {
-    case "user": return "you › ";
-    case "assistant": return "deepseek › ";
-    case "reasoning": return "reasoning › ";
-    case "tool": return "tool › ";
-    case "tool_ok": return "tool ✓ ";
-    case "tool_error": return "tool ✗ ";
-    case "system": return "system › ";
-    case "error": return "error › ";
+    case "user": return "captain › ";
+    case "assistant": return "zeus › ";
+    case "reasoning": return "think › ";
+    case "tool": return "  ⚙ ";
+    case "tool_ok": return "  ✓ ";
+    case "tool_error": return "  ✗ ";
+    case "system": return "bridge › ";
+    case "error": return "⚠️  ";
     default: return assertNever(kind);
   }
 }

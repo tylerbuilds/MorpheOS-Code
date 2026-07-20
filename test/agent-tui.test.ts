@@ -194,12 +194,12 @@ test("tuiReducer represents reasoning, tool activity and completed text", () => 
   assert.equal(state.status, "idle");
   assert.equal(state.tokens, 42);
   assert.deepEqual(lines, [
-    "you › inspect the repo",
-    "reasoning › Checking structure",
-    "deepseek › I will inspect first.",
-    "tool › search_files {\"pattern\":\"*.ts\"}",
-    "tool ✓ search_files — 8 files",
-    "deepseek › Found the source.",
+    "captain › inspect the repo",
+    "think › Checking structure",
+    "zeus › I will inspect first.",
+    "  ⚙ search_files {\"pattern\":\"*.ts\"}",
+    "  ✓ search_files — 8 files",
+    "zeus › Found the source.",
   ]);
 });
 
@@ -214,7 +214,7 @@ test("transcriptLines keeps the most recent bounded rows", () => {
   const lines = transcriptLines(state, 2);
 
   // Then
-  assert.deepEqual(lines, ["system › three", "system › four"]);
+  assert.deepEqual(lines, ["bridge › three", "bridge › four"]);
 });
 
 test("composerSegments exposes the cursor without changing the draft", () => {

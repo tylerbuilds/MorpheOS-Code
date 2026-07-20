@@ -8,6 +8,24 @@ import { listSessions, updateSessionSummary, type AgentSession } from "./session
 import { createToolRegistry, type ToolApprovalRequest } from "./tools.js";
 import { createSessionApprovalGate, formatApprovalRequest, type ApprovalChoice } from "./cli.js";
 import { composerSegments, initialTuiState, shouldExitOnCtrlD, transcriptLines, tuiReducer } from "./tui-state.js";
+import { bold, dim, grey, gold } from "./theme.js";
+
+const MOTD = [
+  `⚡ ${bold("MorpheOS Code")} — ${dim("Captain Zeus at the helm")}`,
+  "",
+  `${grey("Type /help for orders. /exit to leave the bridge.")}`,
+  `${grey("Powered by DeepSeek V4 · British English · Ship metaphors encouraged")}`,
+];
+
+function zeusError(raw: string): string {
+  if (raw.includes("401") || raw.includes("unauthorized")) return "The DeepSeek harbour master refused our credentials, Captain. Check your API key.";
+  if (raw.includes("402")) return "Insufficient credits — the coffer's run dry. Top up at platform.deepseek.com.";
+  if (raw.includes("429")) return "Rate limit hit — we're knocking too loudly at the harbour gate. Give it a moment.";
+  if (raw.includes("timeout") || raw.includes("timed out")) return "DeepSeek hasn't answered our hail, Captain. The line may be down.";
+  if (raw.includes("aborted")) return "Course aborted, Captain.";
+  if (raw.includes("DEEPSEEK_API_KEY")) return "No API key in the chart room, Captain. Set DEEPSEEK_API_KEY in your environment.";
+  return raw;
+}
 
 type SlashCommand = { readonly kind: "exit" } | { readonly kind: "clear" } | { readonly kind: "message"; readonly message: string } | { readonly kind: "jobs"; readonly jobs: readonly CorpusJob[] };
 
@@ -81,7 +99,7 @@ function ChatTui({ session, apiKey }: { readonly session: AgentSession; readonly
         if (session.record.message_count <= 5) updateSessionSummary(session, `${input.slice(0, 80)}${input.length > 80 ? "..." : ""}`);
         setJobs(loadCorpusJobs(defaultArtifactRoot()));
       })
-      .catch((error: unknown) => dispatch({ type: "error", message: controller.signal.aborted ? "Turn interrupted." : error instanceof Error ? error.message : String(error) }))
+      .catch((error: unknown) => dispatch({ type: "error", message: zeusError(controller.signal.aborted ? "aborted" : error instanceof Error ? error.message : String(error)) }))
       .finally(() => { turnController.current = null; if (exitAfterTurn.current) exit(); });
   };
 
@@ -148,25 +166,28 @@ function ChatTui({ session, apiKey }: { readonly session: AgentSession; readonly
   const segments = composerSegments(draft, cursor);
   const showPanel = columns >= 76;
   return <Box width={columns} height={rows} flexDirection="column">
-    <Box borderStyle="single" borderColor="cyan" paddingX={1} justifyContent="space-between">
-      <Text bold>DeepSeek Harness</Text><Text>{state.status === "running" ? "working" : "ready"} · {session.model}</Text>
+    <Box borderStyle="single" borderColor="yellow" paddingX={1} justifyContent="space-between">
+      <Text bold color="yellow">⚡ MorpheOS Code</Text><Text dimColor>{state.status === "running" ? "under way" : "standing by"} · {session.model === "deepseek-v4-pro" ? "Pro" : "Flash"}</Text>
     </Box>
     <Box flexGrow={1} overflow="hidden">
       <Box flexDirection="column" flexGrow={1} borderStyle="single" paddingX={1} overflow="hidden">
-        {lines.length === 0 ? <Text dimColor>Type /help for commands.</Text> : lines.map((line, index) => <Text key={`${index}-${line}`} wrap="truncate-end">{line}</Text>)}
+        {lines.length === 0 ? MOTD.map((line, i) => <Text key={`motd-${i}`} dimColor={i > 0}>{line}</Text>) : lines.map((line, index) => <Text key={`${index}-${line}`} wrap="truncate-end">{line}</Text>)}
       </Box>
       {showPanel ? <Box width={32} flexDirection="column" borderStyle="single" paddingX={1}>
-        <Text bold color="cyan">Session</Text><Text wrap="truncate-end">{session.id}</Text>
-        <Text>model {session.model}</Text><Text>cost ${session.record.total_cost_usd.toFixed(6)}</Text><Text>tokens {session.record.total_tokens}</Text>
-        <Text bold color="cyan">Recent corpus jobs</Text>
-        {jobs.length === 0 ? <Text dimColor>none</Text> : jobs.map((job) => <Text key={job.jobId} wrap="truncate-end">{formatCorpusJob(job)}</Text>)}
+        <Text bold color="yellow">Captain's Log</Text>
+        <Text dimColor wrap="truncate-end">{session.id}</Text>
+        <Text>{session.model === "deepseek-v4-pro" ? "Pro" : "Flash"} engines</Text>
+        <Text>£{session.record.total_cost_usd.toFixed(6)}</Text>
+        <Text>{session.record.total_tokens} tokens</Text>
+        <Text bold color="yellow">Cargo Bay</Text>
+        {jobs.length === 0 ? <Text dimColor>empty</Text> : jobs.map((job) => <Text key={job.jobId} wrap="truncate-end">{formatCorpusJob(job)}</Text>)}
       </Box> : null}
     </Box>
     {approval ? <Box flexDirection="column" borderStyle="double" borderColor="yellow" paddingX={1}>
-      <Text bold>Approve exact tool call?</Text><Text>{formatApprovalRequest(approval)}</Text><Text>[y] once  [s] this tool for session  [n] decline</Text>
+      <Text bold color="yellow">Captain's authorisation required</Text><Text>{formatApprovalRequest(approval)}</Text><Text dimColor>[y] once  [s] session  [n] decline</Text>
     </Box> : null}
     <Box borderStyle="single" borderColor={state.status === "running" ? "yellow" : "green"} paddingX={1}>
-      <Text>› {segments.before}<Text inverse>{segments.cursor}</Text>{segments.after}</Text>
+      <Text>❯ {segments.before}<Text inverse>{segments.cursor}</Text>{segments.after}</Text>
     </Box>
   </Box>;
 }
@@ -174,13 +195,14 @@ function ChatTui({ session, apiKey }: { readonly session: AgentSession; readonly
 function slashCommand(input: string, session: AgentSession): SlashCommand {
   const command = input.slice(1).split(/\s+/, 1)[0] ?? "";
   switch (command) {
-    case "help": return { kind: "message", message: "/help /clear /cost /sessions /jobs /exit" };
+    case "help": return { kind: "message", message: `/help  /clear  /cost  /sessions  /jobs  /exit
+${grey("Captain's bridge commands. All ship-shape and Bristol fashion.")}` };
     case "clear": return { kind: "clear" };
-    case "cost": return { kind: "message", message: `Session cost: $${session.record.total_cost_usd.toFixed(6)} (${session.record.total_tokens} tokens)` };
-    case "sessions": return { kind: "message", message: listSessions(session.store, 10).map((item) => `${item.id === session.id ? "*" : " "} ${item.id} ${item.model} $${item.total_cost_usd.toFixed(4)}`).join("\n") || "No sessions found." };
+    case "cost": return { kind: "message", message: `Fuel consumed: £${session.record.total_cost_usd.toFixed(6)} (${session.record.total_tokens} tokens across ${session.record.message_count} messages)` };
+    case "sessions": return { kind: "message", message: listSessions(session.store, 10).map((item) => `${item.id === session.id ? "*" : " "} ${item.id} ${item.model} £${item.total_cost_usd.toFixed(4)} ${item.summary || "-"}`).join("\n") || "No previous voyages found." };
     case "jobs": return { kind: "jobs", jobs: loadCorpusJobs(defaultArtifactRoot()) };
     case "exit": case "quit": return { kind: "exit" };
-    default: return { kind: "message", message: `Unknown command: /${command}. Type /help.` };
+    default: return { kind: "message", message: `Unknown order: /${command}. Type /help for available commands, Captain.` };
   }
 }
 
