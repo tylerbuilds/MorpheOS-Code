@@ -9,6 +9,7 @@ import { createSession, resumeSession, updateSessionSummary, type AgentSession }
 import { getApiKey } from "./stream.js";
 import { agentTurn } from "./loop.js";
 import { createToolRegistry } from "./tools.js";
+import { MemoryManager } from "./memory.js";
 
 export interface AgentTurnResult {
   ok: boolean;
@@ -75,6 +76,10 @@ export async function agentChat(options: {
     const registry = createToolRegistry();
     // Agents get full tool access — no interactive approval gating needed
     // since the agent is already authorised by the operator
+
+    // Project memory is loaded automatically via buildContext() during agentTurn.
+    // MemoryManager wired here for explicit access in agent mode.
+    const memory = new MemoryManager(session.cwd);
 
     const toolCalls: AgentToolCallRecord[] = [];
     let fullText = "";

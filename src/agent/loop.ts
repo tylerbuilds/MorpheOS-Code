@@ -26,13 +26,15 @@ export interface AgentTurnOptions {
   maxToolCalls?: number;
   baseUrl?: string;
   timeoutMs?: number;
+  /** Override the session model for this turn (e.g. when using architect/editor pairing). */
+  model?: string;
 }
 
 const DEFAULT_MAX_TOOL_ROUNDS = 8;
 const DEFAULT_MAX_TOOL_CALLS = 32;
 
-function selectModel(sessionModel: string): string {
-  return sessionModel;
+function selectModel(sessionModel: string, override?: string): string {
+  return override ?? sessionModel;
 }
 
 function estimateCost(model: string, usage: TokenUsage | null): number {
@@ -95,7 +97,7 @@ export async function agentTurn(
   throwIfAborted(options.signal);
   addUserMessage(session, input);
   const context = buildContext(session);
-  const model = selectModel(session.model);
+  const model = selectModel(session.model, options.model);
   let turnText = "";
   let turnReasoning = "";
   let toolCallCount = 0;

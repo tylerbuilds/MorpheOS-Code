@@ -6,6 +6,7 @@ import { baseSystemPrompt } from "./prompts.js";
 import { createToolRegistry } from "./tools.js";
 import type { AgentSession, ChatMessage } from "./session.js";
 import { loadMessages } from "./session.js";
+import { MemoryManager } from "./memory.js";
 
 const MAX_RECENT_MESSAGES = 25;
 const PINNED_FILES = ["AGENTS.md", "CLAUDE.md", "GEMINI.md", "COPILOT.md"];
@@ -38,6 +39,18 @@ export function buildContext(session: AgentSession, userInput?: string): Context
       role: "system",
       content: `Project context:\n\n${pinned}`,
     });
+  }
+
+  // 2.5. Project memory (auto-learned across sessions)
+  const memory = new MemoryManager(session.cwd);
+  if (memory.exists()) {
+    const memoryContext = memory.loadContext();
+    if (memoryContext) {
+      messages.push({
+        role: "system",
+        content: `## Project Memory\n\n${memoryContext}`,
+      });
+    }
   }
 
   // 3. Message history

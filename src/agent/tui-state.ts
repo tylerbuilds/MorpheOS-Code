@@ -2,6 +2,7 @@ import { HarnessError } from "../errors.js";
 import type { AgentEvent } from "./events.js";
 import type { PermissionRule } from "./permissions.js";
 import { formatRule } from "./permissions.js";
+import type { BgJob } from "./background.js";
 
 type EntryKind = "user" | "assistant" | "reasoning" | "tool" | "tool_ok" | "tool_error" | "system" | "error" | "permit_denied";
 type TranscriptEntry = { readonly kind: EntryKind; readonly text: string };
@@ -14,6 +15,7 @@ export type TuiState = {
   readonly tokens: number;
   readonly showThinking: boolean;
   readonly rules: readonly PermissionRule[];
+  readonly bgJobs: readonly BgJob[];
 };
 
 export type TuiAction =
@@ -24,9 +26,10 @@ export type TuiAction =
   | { readonly type: "clear" }
   | { readonly type: "toggleThinking" }
   | { readonly type: "addRule"; readonly rule: PermissionRule }
-  | { readonly type: "removeRule"; readonly pattern: string };
+  | { readonly type: "removeRule"; readonly pattern: string }
+  | { readonly type: "bgUpdate"; readonly jobs: readonly BgJob[] };
 
-export function initialTuiState(): TuiState { return { entries: [], currentText: "", currentReasoning: "", status: "idle", tokens: 0, showThinking: false, rules: [] }; }
+export function initialTuiState(): TuiState { return { entries: [], currentText: "", currentReasoning: "", status: "idle", tokens: 0, showThinking: false, rules: [], bgJobs: [] }; }
 
 export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
   switch (action.type) {
@@ -46,6 +49,8 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
     }
     case "removeRule":
       return { ...state, rules: state.rules.filter(r => r.pattern !== action.pattern) };
+    case "bgUpdate":
+      return { ...state, bgJobs: action.jobs };
     case "event":
       return reduceAgentEvent(state, action.event);
     default:

@@ -11,6 +11,9 @@ import { composerSegments, initialTuiState, shouldExitOnCtrlD, transcriptLines, 
 import { bold, dim, grey, gold } from "./theme.js";
 import { createPermissionGate, formatRule, type PermissionRule } from "./permissions.js";
 import { McpRegistry, type McpServerConfig, type McpToolDefinition } from "./mcp-client.js";
+import { MemoryManager } from "./memory.js";
+import { BackgroundManager, type BgJob } from "./background.js";
+import { pairedTurn, type PairingConfig } from "./pairing.js";
 
 const MOTD = [
   `⚡ ${bold("MorpheOS Code")} — ${dim("Captain Zeus at the helm")}`,
@@ -29,7 +32,7 @@ function zeusError(raw: string): string {
   return raw;
 }
 
-type SlashCommand = { readonly kind: "exit" } | { readonly kind: "clear" } | { readonly kind: "message"; readonly message: string } | { readonly kind: "jobs"; readonly jobs: readonly CorpusJob[] } | { readonly kind: "thinking" } | { readonly kind: "model" } | { readonly kind: "settings" } | { readonly kind: "mcp-list" } | { readonly kind: "mcp-add"; readonly config: McpServerConfig } | { readonly kind: "mcp-remove"; readonly name: string } | { readonly kind: "permit"; readonly command: "add" | "remove" | "list"; readonly rule?: PermissionRule; readonly pattern?: string };
+type SlashCommand = { readonly kind: "exit" } | { readonly kind: "clear" } | { readonly kind: "message"; readonly message: string } | { readonly kind: "jobs"; readonly jobs: readonly CorpusJob[] } | { readonly kind: "thinking" } | { readonly kind: "model" } | { readonly kind: "settings" } | { readonly kind: "mcp-list" } | { readonly kind: "mcp-add"; readonly config: McpServerConfig } | { readonly kind: "mcp-remove"; readonly name: string } | { readonly kind: "permit"; readonly command: "add" | "remove" | "list"; readonly rule?: PermissionRule; readonly pattern?: string } | { readonly kind: "memory-show" } | { readonly kind: "memory-save"; readonly entry: string } | { readonly kind: "memory-topic"; readonly name: string } | { readonly kind: "memory-topics" } | { readonly kind: "bg-list" } | { readonly kind: "bg-cancel"; readonly id: string } | { readonly kind: "pair"; readonly action: "on" | "off" | "status" };
 
 export async function runTui(session: AgentSession, apiKey: string): Promise<void> {
   const instance = render(<ChatTui session={session} apiKey={apiKey} />, { alternateScreen: true, exitOnCtrlC: false, patchConsole: false });
@@ -49,6 +52,9 @@ function ChatTui({ session, apiKey }: { readonly session: AgentSession; readonly
   const [model, setModel] = useState(session.model);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsIdx, setSettingsIdx] = useState(0);
+  const bgManager = useRef(new BackgroundManager());
+  const [bgJobs, setBgJobs] = useState<readonly BgJob[]>([]);
+  const [pairing, setPairing] = useState<PairingConfig>({ enabled: false, architect: "deepseek-v4-pro", editor: "deepseek-v4-flash" });
   const approvalResolver = useRef<((choice: ApprovalChoice) => void) | null>(null);
   const turnController = useRef<AbortController | null>(null);
   const exitAfterTurn = useRef(false);
@@ -139,6 +145,45 @@ function ChatTui({ session, apiKey }: { readonly session: AgentSession; readonly
           }
           break;
         }
+        case "memory-show": {
+          const mem = new MemoryManager(session.cwd);
+          const ctx = mem.loadContext();
+          if (ctx) {
+            const lines = ctx.split("\n").slice(0, 10);
+            dispatch({ type: "message", message: `⚓ Project Memory (first 10 entries):\n${lines.join("\n")}` });
+          } else {
+            dispatch({ type: "message", message: "No project memory yet, Captain. Use /memory save <entry> to record a learning." });
+          }
+          break;
+        }
+        case "memory-save": {
+          const mem = new MemoryManager(session.cwd);
+          mem.saveEntry(command.entry).then(
+            () => dispatch({ type: "message", message: `Memory saved: "${command.entry}"` }),
+            (err) => dispatch({ type: "error", message: `Failed to save memory: ${err instanceof Error ? err.message : String(err)}` }),
+          );
+          break;
+        }
+        case "memory-topic": {
+          const mem = new MemoryManager(session.cwd);
+          const topicContent = mem.loadTopic(command.name);
+          if (topicContent) {
+            dispatch({ type: "message", message: `📋 Topic "${command.name}":\n${topicContent.slice(0, 2000)}` });
+          } else {
+            dispatch({ type: "message", message: `No topic named "${command.name}" found. Use /memory topics to list available topics.` });
+          }
+          break;
+        }
+        case "memory-topics": {
+          const mem = new MemoryManager(session.cwd);
+          const topics = mem.listTopics();
+          if (topics.length > 0) {
+            dispatch({ type: "message", message: `📚 Available topics:\n${topics.map(t => `  - ${t}`).join("\n")}` });
+          } else {
+            dispatch({ type: "message", message: "No topics saved yet. Use /memory topic <name> — the agent will create topic files as it learns." });
+          }
+          break;
+        }
         case "permit": {
           if (command.command === "list") {
             const lines = state.rules.length > 0
@@ -154,6 +199,40 @@ function ChatTui({ session, apiKey }: { readonly session: AgentSession; readonly
           }
           break;
         }
+        case "bg-list": {
+          const all = bgManager.current.listJobs();
+          if (all.length === 0) {
+            dispatch({ type: "message", message: "No background jobs, Captain." });
+          } else {
+            const lines = all.map(j => `${j.id} [${j.status}] ${j.name} — ${j.summary}`);
+            dispatch({ type: "message", message: `Background jobs (${all.length}):\n${lines.join("\n")}` });
+          }
+          setBgJobs(all);
+          dispatch({ type: "bgUpdate", jobs: all });
+          break;
+        }
+        case "bg-cancel": {
+          const cancelled = bgManager.current.cancelJob(command.id);
+          const all = bgManager.current.listJobs();
+          setBgJobs(all);
+          dispatch({ type: "bgUpdate", jobs: all });
+          dispatch({ type: "message", message: cancelled ? `Job ${command.id} cancelled.` : `Job ${command.id} not found or already finished.` });
+          break;
+        }
+        case "pair": {
+          if (command.action === "on") {
+            setPairing({ ...pairing, enabled: true });
+            dispatch({ type: "message", message: `Architect/Editor pairing engaged. ${pairing.architect} plans, ${pairing.editor} executes.` });
+          } else if (command.action === "off") {
+            setPairing({ ...pairing, enabled: false });
+            dispatch({ type: "message", message: "Pairing disengaged. Back to single-model mode." });
+          } else {
+            dispatch({ type: "message", message: pairing.enabled
+              ? `Pairing: ON — ${pairing.architect} (architect) → ${pairing.editor} (editor)`
+              : "Pairing: OFF — single-model mode" });
+          }
+          break;
+        }
         default: assertNever(command);
       }
       return;
@@ -165,16 +244,30 @@ function ChatTui({ session, apiKey }: { readonly session: AgentSession; readonly
     }
     const controller = new AbortController();
     turnController.current = controller;
-    void agentTurn(session, apiKey, input, (event) => dispatch({ type: "event", event }), registry, {
-      signal: controller.signal,
-      baseUrl: process.env.DEEPSEEK_API_BASE_URL,
-    })
-      .then(() => {
-        if (session.record.message_count <= 5) updateSessionSummary(session, `${input.slice(0, 80)}${input.length > 80 ? "..." : ""}`);
-        setJobs(loadCorpusJobs(defaultArtifactRoot()));
+    if (pairing.enabled) {
+      void pairedTurn(session, apiKey, input, pairing, {
+        onText: (text) => dispatch({ type: "event", event: { type: "text_delta", delta: text } }),
+        onPhase: (_phase, text) => dispatch({ type: "message", message: text }),
       })
-      .catch((error: unknown) => dispatch({ type: "error", message: zeusError(controller.signal.aborted ? "aborted" : error instanceof Error ? error.message : String(error)) }))
-      .finally(() => { turnController.current = null; if (exitAfterTurn.current) exit(); });
+        .then((result) => {
+          dispatch({ type: "event", event: { type: "turn_complete", text: result.result, reasoningContent: "", toolCalls: 0, toolRounds: 0, tokens: result.totalTokens } });
+          if (session.record.message_count <= 5) updateSessionSummary(session, `${input.slice(0, 80)}${input.length > 80 ? "..." : ""}`);
+          setJobs(loadCorpusJobs(defaultArtifactRoot()));
+        })
+        .catch((error: unknown) => dispatch({ type: "error", message: zeusError(controller.signal.aborted ? "aborted" : error instanceof Error ? error.message : String(error)) }))
+        .finally(() => { turnController.current = null; if (exitAfterTurn.current) exit(); });
+    } else {
+      void agentTurn(session, apiKey, input, (event) => dispatch({ type: "event", event }), registry, {
+        signal: controller.signal,
+        baseUrl: process.env.DEEPSEEK_API_BASE_URL,
+      })
+        .then(() => {
+          if (session.record.message_count <= 5) updateSessionSummary(session, `${input.slice(0, 80)}${input.length > 80 ? "..." : ""}`);
+          setJobs(loadCorpusJobs(defaultArtifactRoot()));
+        })
+        .catch((error: unknown) => dispatch({ type: "error", message: zeusError(controller.signal.aborted ? "aborted" : error instanceof Error ? error.message : String(error)) }))
+        .finally(() => { turnController.current = null; if (exitAfterTurn.current) exit(); });
+    }
   };
 
   useInput((input, key) => {
@@ -182,15 +275,16 @@ function ChatTui({ session, apiKey }: { readonly session: AgentSession; readonly
     if (showSettings) {
       if (key.escape) { setShowSettings(false); return; }
       if (key.upArrow) { setSettingsIdx((i) => Math.max(0, i - 1)); return; }
-      if (key.downArrow) { setSettingsIdx((i) => Math.min(2, i + 1)); return; }
+      if (key.downArrow) { setSettingsIdx((i) => Math.min(3, i + 1)); return; }
       if (key.leftArrow || key.rightArrow || key.return) {
         switch (settingsIdx) {
           case 0: { // Model toggle
             const next = model === "deepseek-v4-pro" ? "deepseek-v4-flash" : "deepseek-v4-pro";
             setModel(next); session.model = next; break;
           }
-          case 1: dispatch({ type: "toggleThinking" }); break;
-          case 2: break; // Session info row — no action
+          case 1: setPairing((p) => ({ ...p, enabled: !p.enabled })); break;
+          case 2: dispatch({ type: "toggleThinking" }); break;
+          case 3: break; // Session info row — no action
         }
         return;
       }
@@ -258,7 +352,7 @@ function ChatTui({ session, apiKey }: { readonly session: AgentSession; readonly
   const showPanel = columns >= 76;
   return <Box width={columns} height={rows} flexDirection="column">
     <Box borderStyle="single" borderColor="yellow" paddingX={1} justifyContent="space-between">
-      <Text bold color="yellow">⚡ MorpheOS Code</Text><Text dimColor>{state.status === "running" ? "under way" : "standing by"} · {model === "deepseek-v4-pro" ? "Pro" : "Flash"}</Text>
+      <Text bold color="yellow">⚡ MorpheOS Code</Text><Text dimColor>{state.status === "running" ? "under way" : "standing by"} · {pairing.enabled ? `${pairing.architect} → ${pairing.editor}` : model === "deepseek-v4-pro" ? "Pro" : "Flash"}</Text>
     </Box>
     <Box flexGrow={1} overflow="hidden">
       <Box flexDirection="column" flexGrow={1} borderStyle="single" paddingX={1} overflow="hidden">
@@ -267,16 +361,19 @@ function ChatTui({ session, apiKey }: { readonly session: AgentSession; readonly
       {showPanel ? <Box width={32} flexDirection="column" borderStyle="single" paddingX={1}>
         <Text bold color="yellow">Captain's Log</Text>
         <Text dimColor wrap="truncate-end">{session.id}</Text>
-        <Text>{model === "deepseek-v4-pro" ? "Pro" : "Flash"} engines</Text>
+        <Text>{pairing.enabled ? `${pairing.architect} → ${pairing.editor}` : model === "deepseek-v4-pro" ? "Pro" : "Flash"} engines</Text>
         <Text>£{session.record.total_cost_usd.toFixed(6)}</Text>
         <Text>{session.record.total_tokens} tokens</Text>
         <Text bold color="yellow">Cargo Bay</Text>
         {jobs.length === 0 ? <Text dimColor>empty</Text> : jobs.map((job) => <Text key={job.jobId} wrap="truncate-end">{formatCorpusJob(job)}</Text>)}
+        <Text bold color="yellow">Background Ops</Text>
+        <Text dimColor>Bg: {bgManager.current.runningCount()} running, {bgManager.current.completedCount()} done</Text>
       </Box> : null}
     </Box>
     {showSettings ? <SettingsPanel
       model={model}
       thinking={state.showThinking}
+      pairingEnabled={pairing.enabled}
       cost={session.record.total_cost_usd}
       tokens={session.record.total_tokens}
       sessionId={session.id}
@@ -295,10 +392,13 @@ function ChatTui({ session, apiKey }: { readonly session: AgentSession; readonly
 function slashCommand(input: string, session: AgentSession, showThinking: boolean): SlashCommand {
   const command = input.slice(1).split(/\s+/, 1)[0] ?? "";
   switch (command) {
-    case "help": return { kind: "message", message: `/help  /clear  /settings  /model flash|pro  /cost  /sessions  /jobs  /thinking  /permit  /mcp  /exit
+    case "help": return { kind: "message", message: `/help  /clear  /settings  /model flash|pro  /pair on|off|status  /cost  /sessions  /jobs  /thinking  /permit  /mcp  /memory  /bg  /exit
 ${grey("Captain's bridge commands. All ship-shape and Bristol fashion.")}
+${grey("Pair: /pair on — enable architect (Pro plans) / editor (Flash executes)")}
 ${grey("MCP: /mcp add <name> <command>  /mcp list  /mcp remove <name>")}
-${grey("Permit: /permit  /permit add Tool(pattern) allow|ask|deny  /permit remove Tool(pattern)")}` };
+${grey("Permit: /permit  /permit add Tool(pattern) allow|ask|deny  /permit remove Tool(pattern)")}
+${grey("Memory: /memory [show]  /memory save <entry>  /memory topic <name>  /memory topics")}
+${grey("Background: /bg list  /bg cancel <id>")}` };
     case "clear": return { kind: "clear" };
     case "cost": return { kind: "message", message: `Fuel consumed: £${session.record.total_cost_usd.toFixed(6)} (${session.record.total_tokens} tokens across ${session.record.message_count} messages)` };
     case "sessions": return { kind: "message", message: listSessions(session.store, 10).map((item) => `${item.id === session.id ? "*" : " "} ${item.id} ${item.model} £${item.total_cost_usd.toFixed(4)} ${item.summary || "-"}`).join("\n") || "No previous voyages found." };
@@ -309,6 +409,9 @@ ${grey("Permit: /permit  /permit add Tool(pattern) allow|ask|deny  /permit remov
     case "exit": case "quit": return { kind: "exit" };
     case "mcp": return parseMcpCommand(input);
     case "permit": return parsePermitCommand(input);
+    case "bg": return parseBgCommand(input);
+    case "memory": return parseMemoryCommand(input);
+    case "pair": return parsePairCommand(input);
     default: return { kind: "message", message: `Unknown order: /${command}. Type /help for available commands, Captain.` };
   }
 }
@@ -386,6 +489,68 @@ function parsePermitCommand(input: string): SlashCommand {
   return { kind: "message", message: "Usage: /permit | /permit add Tool(pattern) allow|ask|deny | /permit remove Tool(pattern)" };
 }
 
+/** Parse /bg list|cancel arguments. */
+function parseBgCommand(input: string): SlashCommand {
+  const parts = input.split(/\s+/).slice(1); // skip "/bg"
+  const sub = parts[0]?.toLowerCase() ?? "";
+
+  if (sub === "list" || sub === "ls" || sub === "") {
+    return { kind: "bg-list" };
+  }
+
+  if (sub === "cancel") {
+    const id = parts[1];
+    if (!id) return { kind: "message", message: "Usage: /bg cancel <id>" };
+    return { kind: "bg-cancel", id };
+  }
+
+  return { kind: "message", message: "Usage: /bg list | /bg cancel <id>" };
+}
+
+/** Parse /pair on|off|status arguments. */
+function parsePairCommand(input: string): SlashCommand {
+  const parts = input.split(/\s+/).slice(1); // skip "/pair"
+  const sub = parts[0]?.toLowerCase() ?? "status";
+
+  if (sub === "on") return { kind: "pair", action: "on" };
+  if (sub === "off") return { kind: "pair", action: "off" };
+  if (sub === "status") return { kind: "pair", action: "status" };
+
+  return { kind: "message", message: "Usage: /pair on | /pair off | /pair status" };
+}
+
+/** Parse /memory [show|save|topic|topics] arguments. */
+function parseMemoryCommand(input: string): SlashCommand {
+  const parts = input.split(/\s+/).slice(1); // skip "/memory"
+  const sub = parts[0]?.toLowerCase() ?? "";
+
+  // /memory or /memory show — display current memory
+  if (sub === "" || sub === "show") {
+    return { kind: "memory-show" };
+  }
+
+  // /memory save <entry>
+  if (sub === "save") {
+    const entry = parts.slice(1).join(" ");
+    if (!entry) return { kind: "message", message: "Usage: /memory save <entry text>" };
+    return { kind: "memory-save", entry };
+  }
+
+  // /memory topics — list available topics
+  if (sub === "topics") {
+    return { kind: "memory-topics" };
+  }
+
+  // /memory topic <name> — load a topic
+  if (sub === "topic") {
+    const name = parts.slice(1).join(" ");
+    if (!name) return { kind: "message", message: "Usage: /memory topic <name>" };
+    return { kind: "memory-topic", name };
+  }
+
+  return { kind: "message", message: "Usage: /memory [show] | /memory save <entry> | /memory topic <name> | /memory topics" };
+}
+
 /** Connect an MCP server and register its tools into the tool registry. */
 async function connectMcpServer(
   mcpRegistry: McpRegistry,
@@ -415,9 +580,10 @@ async function connectMcpServer(
   return tools;
 }
 
-function SettingsPanel({ model, thinking, cost, tokens, sessionId, selected }: {
+function SettingsPanel({ model, thinking, pairingEnabled, cost, tokens, sessionId, selected }: {
   readonly model: string;
   readonly thinking: boolean;
+  readonly pairingEnabled: boolean;
   readonly cost: number;
   readonly tokens: number;
   readonly sessionId: string;
@@ -425,8 +591,9 @@ function SettingsPanel({ model, thinking, cost, tokens, sessionId, selected }: {
 }) {
   const rows: Array<{ label: string; value: string; active: boolean; toggle: boolean }> = [
     { label: "Model", value: model === "deepseek-v4-pro" ? "Pro" : "Flash", active: selected === 0, toggle: true },
-    { label: "Thinking", value: thinking ? "ON" : "OFF", active: selected === 1, toggle: true },
-    { label: "Session", value: sessionId.slice(0, 20), active: selected === 2, toggle: false },
+    { label: "Pairing", value: pairingEnabled ? "ON" : "OFF", active: selected === 1, toggle: true },
+    { label: "Thinking", value: thinking ? "ON" : "OFF", active: selected === 2, toggle: true },
+    { label: "Session", value: sessionId.slice(0, 20), active: selected === 3, toggle: false },
   ];
 
   return (
@@ -440,7 +607,7 @@ function SettingsPanel({ model, thinking, cost, tokens, sessionId, selected }: {
             {row.active ? "▶" : " "} {row.label.padEnd(10)}
           </Text>
           <Text>{row.toggle ? `[ ${row.value} ]` : row.value}</Text>
-          {i === 2 ? null : <Text dimColor>  ←→ toggle</Text>}
+          {i === 3 ? null : <Text dimColor>  ←→ toggle</Text>}
         </Box>
       ))}
       <Box marginTop={1} paddingLeft={1}>
