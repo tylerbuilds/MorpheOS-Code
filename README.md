@@ -17,12 +17,12 @@ passing tests and adversarial hardening across every module.
 ## Quick start
 
 ```bash
-git clone https://github.com/tylerbuilds/deepseek-harness.git
-cd deepseek-harness
+git clone https://github.com/tylerbuilds/MorpheOS-Code.git
+cd MorpheOS-Code
 bash scripts/install-local.sh --install-dir "$HOME/bin" --force
 export PATH="$HOME/bin:$PATH"
 export DEEPSEEK_API_KEY="sk-..."  # Get one at platform.deepseek.com
-deepseek-harness chat
+morpheos
 ```
 
 You're on the bridge. Type `/help` for commands, `/settings` for the keyboard
@@ -110,6 +110,79 @@ The chat agent is adversarial-hardened:
 | `/exit` | Leave the bridge |
 
 ---
+
+## Agent-native mode
+
+MorpheOS Code is built to be driven by other AI agents. Any agent that can
+run a CLI command can control Captain Zeus via structured JSON:
+
+```bash
+# One-shot: agent gets structured JSON back
+morpheos --json "fix the authentication bug in src/auth.ts"
+
+# Multi-turn: agent maintains session continuity
+morpheos --json "review the PR" --session code-review-42
+morpheos --json "now implement the fixes" --session code-review-42
+
+# Force Pro model for complex reasoning
+morpheos --json "architect the new payment system" --model pro
+```
+
+Output is machine-readable JSON:
+
+```json
+{
+  "ok": true,
+  "session_id": "sess_abc123",
+  "model": "deepseek-v4-flash",
+  "response": "Right then, Captain. The auth bug was in...",
+  "tool_calls": [
+    {
+      "name": "read_file",
+      "params": {"file_path": "/project/src/auth.ts"},
+      "result": "import bcrypt from...",
+      "summary": "Read 142 lines from auth.ts"
+    }
+  ],
+  "usage": {"prompt_tokens": 450, "completion_tokens": 200, "total_tokens": 650},
+  "cost_usd": 0.000715,
+  "session_cost_usd": 0.001430,
+  "session_tokens": 1300
+}
+```
+
+### MCP tool
+
+Agents using the Model Context Protocol can call `morpheos_chat` directly:
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "morpheos_chat",
+    "arguments": {
+      "prompt": "fix the auth bug",
+      "session": "code-review-42"
+    }
+  }
+}
+```
+
+Generate MCP config:
+
+```bash
+deepseek-harness mcp-config --profile full
+```
+
+### Why agents love it
+
+- **Structured output** — every response is valid JSON with typed fields
+- **Session continuity** — `--session` flag maintains context across calls
+- **Tool transparency** — every file read, edit, and command is in the response
+- **Cost tracking** — per-call and cumulative session costs
+- **Exit codes** — 0 for success, 1 for error, 2 for usage, 3 for safety block
+- **Same machine** — runs locally alongside the agent, no network latency for tools
+- **Not OpenClaw-specific** — works with any agent that can exec a CLI command
 
 ## Batch engine
 
