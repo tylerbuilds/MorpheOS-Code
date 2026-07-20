@@ -35,6 +35,9 @@ export interface ToolDefinition {
   name: string;
   description: string;
   parameters: ToolParam[];
+  /** Raw JSON Schema for the tool's input. When present, describe() uses this
+   *  instead of building a schema from parameters[]. Used by MCP tools. */
+  rawSchema?: Record<string, unknown>;
 }
 
 export interface ToolResult {
@@ -92,21 +95,47 @@ export class ToolRegistry {
     this.tools.set(tool.definition.name, tool);
   }
 
+  unregister(name: string): boolean {
+    return this.tools.delete(name);
+  }
+
+  unregisterByPrefix(prefix: string): number {
+    let count = 0;
+    for (const name of this.tools.keys()) {
+      if (name.startsWith(prefix)) {
+        this.tools.delete(name);
+        count++;
+      }
+    }
+    return count;
+  }
+
+  has(name: string): boolean {
+    return this.tools.has(name);
+  }
+
+  get registeredCount(): number {
+    return this.tools.size;
+  }
+
   describe(): Array<{ type: "function"; function: { name: string; description: string; parameters: Record<string, unknown> } }> {
-    return Array.from(this.tools.values()).map((tool) => ({
-      type: "function" as const,
-      function: {
-        name: tool.definition.name,
-        description: tool.definition.description,
-        parameters: {
-          type: "object",
-          properties: Object.fromEntries(
-            tool.definition.parameters.map((p) => [p.name, { type: p.type, description: p.description }])
-          ),
-          required: tool.definition.parameters.filter((p) => p.required).map((p) => p.name),
+    return Array.from(this.tools.values()).map((tool) => {
+      const parameters = tool.definition.rawSchema ?? {
+        type: "object",
+        properties: Object.fromEntries(
+          tool.definition.parameters.map((p) => [p.name, { type: p.type, description: p.description }])
+        ),
+        required: tool.definition.parameters.filter((p) => p.required).map((p) => p.name),
+      };
+      return {
+        type: "function" as const,
+        function: {
+          name: tool.definition.name,
+          description: tool.definition.description,
+          parameters,
         },
-      },
-    }));
+      };
+    });
   }
 
   toolDescriptions(): string {

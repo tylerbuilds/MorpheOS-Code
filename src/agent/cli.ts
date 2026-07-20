@@ -19,6 +19,7 @@ import {
   type ToolApprovalRequest,
   type ToolRegistry,
 } from "./tools.js";
+import { createPermissionGate, formatRule, type PermissionRule } from "./permissions.js";
 
 const STATE_DIR = process.env.DEEPSEEK_HARNESS_STATE_DIR ?? ".state";
 
@@ -139,7 +140,9 @@ async function runPlainRepl(session: AgentSession, store: HarnessStore, io: Chat
   const terminal = io.stdinIsTTY && io.stdoutIsTTY;
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal });
   const registry = createToolRegistry();
-  registry.setTier2Gate(createPlainApprovalGate(terminal, (request) => askPlainApproval(rl, request)));
+  const rules: PermissionRule[] = [];
+  const approvalGate = createPlainApprovalGate(terminal, (request) => askPlainApproval(rl, request));
+  registry.setTier2Gate(createPermissionGate(rules, approvalGate, "ask"));
   if (terminal) process.stdout.write("\n> ");
   try {
     for await (const line of rl) {
@@ -149,7 +152,7 @@ async function runPlainRepl(session: AgentSession, store: HarnessStore, io: Chat
         continue;
       }
       if (input.startsWith("/")) {
-        const keepRunning = handlePlainSlashCommand(input, session, store);
+        const keepRunning = handlePlainSlashCommand(input, session, store, rules);
         if (!keepRunning) break;
       } else {
         if (terminal) {
@@ -195,7 +198,7 @@ async function runInteractivePlainTurn(session: AgentSession, input: string, reg
   }
 }
 
-function handlePlainSlashCommand(input: string, session: AgentSession, store: HarnessStore): boolean {
+function handlePlainSlashCommand(input: string, session: AgentSession, store: HarnessStore, rules: PermissionRule[]): boolean {
   const command = input.slice(1).split(/\s+/, 1)[0] ?? "";
   switch (command) {
     case "exit":
@@ -203,7 +206,7 @@ function handlePlainSlashCommand(input: string, session: AgentSession, store: Ha
       process.stdout.write("Goodbye.\n");
       return false;
     case "help":
-      process.stdout.write("\n/help /clear /cost /sessions /jobs /exit\n");
+      process.stdout.write("\n/help /clear /cost /sessions /jobs /permit /exit\n");
       return true;
     case "clear":
       if (process.stdout.isTTY) process.stdout.write("\u001B[2J\u001B[H");
@@ -218,6 +221,10 @@ function handlePlainSlashCommand(input: string, session: AgentSession, store: Ha
     case "jobs": {
       const jobs = loadCorpusJobs(defaultArtifactRoot());
       process.stdout.write(jobs.length === 0 ? "No corpus jobs found.\n" : `${jobs.map(formatCorpusJob).join("\n")}\n`);
+      return true;
+    }
+    case "permit": {
+      handlePlainPermit(input, rules);
       return true;
     }
     default:
@@ -244,6 +251,51 @@ function writePlainHeader(session: AgentSession, resumed: boolean): void {
   }
   process.stdout.write(`Log: ${session.id}  ·  ${session.model}  ·  ${session.cwd}\n`);
   process.stdout.write("Type /help for orders, /exit to leave the bridge.\n");
+}
+
+function handlePlainPermit(input: string, rules: PermissionRule[]): void {
+  const bare = input.trim();
+
+  // /permit — list rules
+  if (bare === "/permit") {
+    if (rules.length === 0) {
+      process.stdout.write("No session permission rules set.\n");
+    } else {
+      process.stdout.write(rules.map(formatRule).join("\n") + "\n");
+    }
+    return;
+  }
+
+  // /permit add Tool(pattern) action
+  const addMatch = bare.match(/^\/permit\s+add\s+([\w-]+\(.+\))\s+(allow|ask|deny)$/);
+  if (addMatch) {
+    const rule: PermissionRule = {
+      pattern: addMatch[1],
+      action: addMatch[2] as PermissionRule["action"],
+    };
+    // Replace existing rule with same pattern
+    const idx = rules.findIndex(r => r.pattern === rule.pattern);
+    if (idx >= 0) rules[idx] = rule;
+    else rules.push(rule);
+    process.stdout.write(`Permission rule added: ${formatRule(rule)}\n`);
+    return;
+  }
+
+  // /permit remove Tool(pattern)
+  const removeMatch = bare.match(/^\/permit\s+remove\s+([\w-]+\(.+\))$/);
+  if (removeMatch) {
+    const pattern = removeMatch[1];
+    const idx = rules.findIndex(r => r.pattern === pattern);
+    if (idx >= 0) {
+      rules.splice(idx, 1);
+      process.stdout.write(`Permission rule removed: ${pattern}\n`);
+    } else {
+      process.stdout.write(`No rule found for pattern: ${pattern}\n`);
+    }
+    return;
+  }
+
+  process.stdout.write("Usage: /permit | /permit add Tool(pattern) allow|ask|deny | /permit remove Tool(pattern)\n");
 }
 
 function writeSessions(store: HarnessStore, limit: number, currentId?: string): void {

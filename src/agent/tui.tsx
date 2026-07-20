@@ -5,10 +5,12 @@ import { defaultArtifactRoot } from "../paths.js";
 import { agentTurn } from "./loop.js";
 import { formatCorpusJob, loadCorpusJobs, type CorpusJob } from "./jobs.js";
 import { listSessions, updateSessionSummary, type AgentSession } from "./session.js";
-import { createToolRegistry, type ToolApprovalRequest } from "./tools.js";
+import { createToolRegistry, type ToolApprovalRequest, type ToolRegistry } from "./tools.js";
 import { createSessionApprovalGate, formatApprovalRequest, type ApprovalChoice } from "./cli.js";
 import { composerSegments, initialTuiState, shouldExitOnCtrlD, transcriptLines, tuiReducer } from "./tui-state.js";
 import { bold, dim, grey, gold } from "./theme.js";
+import { createPermissionGate, formatRule, type PermissionRule } from "./permissions.js";
+import { McpRegistry, type McpServerConfig, type McpToolDefinition } from "./mcp-client.js";
 
 const MOTD = [
   `⚡ ${bold("MorpheOS Code")} — ${dim("Captain Zeus at the helm")}`,
@@ -27,7 +29,7 @@ function zeusError(raw: string): string {
   return raw;
 }
 
-type SlashCommand = { readonly kind: "exit" } | { readonly kind: "clear" } | { readonly kind: "message"; readonly message: string } | { readonly kind: "jobs"; readonly jobs: readonly CorpusJob[] } | { readonly kind: "thinking" } | { readonly kind: "model" } | { readonly kind: "settings" };
+type SlashCommand = { readonly kind: "exit" } | { readonly kind: "clear" } | { readonly kind: "message"; readonly message: string } | { readonly kind: "jobs"; readonly jobs: readonly CorpusJob[] } | { readonly kind: "thinking" } | { readonly kind: "model" } | { readonly kind: "settings" } | { readonly kind: "mcp-list" } | { readonly kind: "mcp-add"; readonly config: McpServerConfig } | { readonly kind: "mcp-remove"; readonly name: string } | { readonly kind: "permit"; readonly command: "add" | "remove" | "list"; readonly rule?: PermissionRule; readonly pattern?: string };
 
 export async function runTui(session: AgentSession, apiKey: string): Promise<void> {
   const instance = render(<ChatTui session={session} apiKey={apiKey} />, { alternateScreen: true, exitOnCtrlC: false, patchConsole: false });
@@ -52,12 +54,15 @@ function ChatTui({ session, apiKey }: { readonly session: AgentSession; readonly
   const exitAfterTurn = useRef(false);
   const registry = useMemo(() => {
     const next = createToolRegistry();
-    next.setTier2Gate(createSessionApprovalGate((request) => new Promise((resolve) => {
+    const approvalGate = createSessionApprovalGate((request) => new Promise((resolve) => {
       approvalResolver.current = resolve;
       setApproval(request);
-    })));
+    }));
+    next.setTier2Gate(createPermissionGate(state.rules, approvalGate, "ask"));
     return next;
-  }, []);
+  }, [state.rules]);
+
+  const mcpRegistry = useMemo(() => new McpRegistry(), []);
 
   const resolveApproval = (choice: ApprovalChoice): void => {
     const resolve = approvalResolver.current;
@@ -95,6 +100,60 @@ function ChatTui({ session, apiKey }: { readonly session: AgentSession; readonly
           break;
         }
         case "settings": setShowSettings(true); break;
+        case "mcp-list": {
+          const servers = mcpRegistry.getServerNames();
+          if (servers.length === 0) {
+            dispatch({ type: "message", message: "No MCP servers connected. Use /mcp add <name> <command> to connect one." });
+          } else {
+            const lines: string[] = ["Connected MCP servers:"];
+            for (const name of servers) {
+              const client = mcpRegistry.getClient(name);
+              const toolCount = client?.getTools().length ?? 0;
+              lines.push(`  ${name} — ${toolCount} tool(s)`);
+            }
+            dispatch({ type: "message", message: lines.join("\n") });
+          }
+          break;
+        }
+        case "mcp-add": {
+          const config = command.config;
+          dispatch({ type: "message", message: `Connecting to MCP server "${config.name}"...` });
+          connectMcpServer(mcpRegistry, registry, config).then(
+            (tools) => dispatch({ type: "message", message: `MCP server "${config.name}" connected with ${tools.length} tool(s).` }),
+            (err) => dispatch({ type: "error", message: `Failed to connect MCP server "${config.name}": ${err instanceof Error ? err.message : String(err)}` }),
+          );
+          break;
+        }
+        case "mcp-remove": {
+          const name = command.name;
+          if (!mcpRegistry.getClient(name)) {
+            dispatch({ type: "message", message: `No MCP server named "${name}" is connected.` });
+          } else {
+            // Unregister all tools for this server
+            const prefix = mcpToolPrefix(name);
+            registry.unregisterByPrefix(prefix);
+            mcpRegistry.removeServer(name).then(
+              () => dispatch({ type: "message", message: `MCP server "${name}" disconnected.` }),
+              (err) => dispatch({ type: "error", message: `Error disconnecting "${name}": ${err instanceof Error ? err.message : String(err)}` }),
+            );
+          }
+          break;
+        }
+        case "permit": {
+          if (command.command === "list") {
+            const lines = state.rules.length > 0
+              ? state.rules.map(formatRule)
+              : ["No session permission rules set."];
+            dispatch({ type: "message", message: lines.join("\n") });
+          } else if (command.command === "add" && command.rule) {
+            dispatch({ type: "addRule", rule: command.rule });
+            dispatch({ type: "message", message: `Permission rule added: ${formatRule(command.rule)}` });
+          } else if (command.command === "remove" && command.pattern) {
+            dispatch({ type: "removeRule", pattern: command.pattern });
+            dispatch({ type: "message", message: `Permission rule removed: ${command.pattern}` });
+          }
+          break;
+        }
         default: assertNever(command);
       }
       return;
@@ -236,8 +295,10 @@ function ChatTui({ session, apiKey }: { readonly session: AgentSession; readonly
 function slashCommand(input: string, session: AgentSession, showThinking: boolean): SlashCommand {
   const command = input.slice(1).split(/\s+/, 1)[0] ?? "";
   switch (command) {
-    case "help": return { kind: "message", message: `/help  /clear  /settings  /model flash|pro  /cost  /sessions  /jobs  /thinking  /exit
-${grey("Captain's bridge commands. All ship-shape and Bristol fashion.")}` };
+    case "help": return { kind: "message", message: `/help  /clear  /settings  /model flash|pro  /cost  /sessions  /jobs  /thinking  /permit  /mcp  /exit
+${grey("Captain's bridge commands. All ship-shape and Bristol fashion.")}
+${grey("MCP: /mcp add <name> <command>  /mcp list  /mcp remove <name>")}
+${grey("Permit: /permit  /permit add Tool(pattern) allow|ask|deny  /permit remove Tool(pattern)")}` };
     case "clear": return { kind: "clear" };
     case "cost": return { kind: "message", message: `Fuel consumed: £${session.record.total_cost_usd.toFixed(6)} (${session.record.total_tokens} tokens across ${session.record.message_count} messages)` };
     case "sessions": return { kind: "message", message: listSessions(session.store, 10).map((item) => `${item.id === session.id ? "*" : " "} ${item.id} ${item.model} £${item.total_cost_usd.toFixed(4)} ${item.summary || "-"}`).join("\n") || "No previous voyages found." };
@@ -246,12 +307,112 @@ ${grey("Captain's bridge commands. All ship-shape and Bristol fashion.")}` };
     case "thinking": return { kind: "thinking" as const };
     case "settings": return { kind: "settings" as const };
     case "exit": case "quit": return { kind: "exit" };
+    case "mcp": return parseMcpCommand(input);
+    case "permit": return parsePermitCommand(input);
     default: return { kind: "message", message: `Unknown order: /${command}. Type /help for available commands, Captain.` };
   }
 }
 
 function assertNever(value: never): never {
   throw new HarnessError("unexpected_tui_variant", `Unexpected TUI variant: ${String(value)}.`);
+}
+
+// ── MCP helpers ──
+
+/** Prefix MCP tool names to avoid collisions with built-in tools. */
+function mcpToolPrefix(serverName: string): string {
+  return `mcp__${serverName}__`;
+}
+
+function mcpToolName(serverName: string, toolName: string): string {
+  return `${mcpToolPrefix(serverName)}${toolName}`;
+}
+
+/** Parse /mcp add|list|remove arguments. */
+function parseMcpCommand(input: string): SlashCommand {
+  const parts = input.split(/\s+/).slice(1); // skip "/mcp"
+  const sub = parts[0]?.toLowerCase() ?? "";
+
+  if (sub === "list" || sub === "ls") {
+    return { kind: "mcp-list" };
+  }
+
+  if (sub === "remove" || sub === "rm") {
+    const name = parts[1];
+    if (!name) return { kind: "message", message: "Usage: /mcp remove <name>" };
+    return { kind: "mcp-remove", name };
+  }
+
+  if (sub === "add") {
+    const name = parts[1];
+    const command = parts.slice(2).join(" ");
+    if (!name || !command) return { kind: "message", message: "Usage: /mcp add <name> <command>" };
+    const config: McpServerConfig = {
+      name,
+      transport: "stdio",
+      command,
+      args: [],
+    };
+    return { kind: "mcp-add", config };
+  }
+
+  return { kind: "message", message: "Usage: /mcp add <name> <command> | /mcp list | /mcp remove <name>" };
+}
+
+/** Parse /permit [add|remove] arguments. */
+function parsePermitCommand(input: string): SlashCommand {
+  // /permit — list rules
+  const bare = input.trim();
+  if (bare === "/permit") {
+    return { kind: "permit", command: "list" };
+  }
+
+  // /permit add Tool(pattern) action
+  const addMatch = bare.match(/^\/permit\s+add\s+([\w-]+\(.+\))\s+(allow|ask|deny)$/);
+  if (addMatch) {
+    const rule: PermissionRule = {
+      pattern: addMatch[1],
+      action: addMatch[2] as PermissionRule["action"],
+    };
+    return { kind: "permit", command: "add", rule };
+  }
+
+  // /permit remove Tool(pattern)
+  const removeMatch = bare.match(/^\/permit\s+remove\s+([\w-]+\(.+\))$/);
+  if (removeMatch) {
+    return { kind: "permit", command: "remove", pattern: removeMatch[1] };
+  }
+
+  return { kind: "message", message: "Usage: /permit | /permit add Tool(pattern) allow|ask|deny | /permit remove Tool(pattern)" };
+}
+
+/** Connect an MCP server and register its tools into the tool registry. */
+async function connectMcpServer(
+  mcpRegistry: McpRegistry,
+  toolRegistry: ToolRegistry,
+  config: McpServerConfig,
+): Promise<McpToolDefinition[]> {
+  const tools = await mcpRegistry.addServer(config);
+  for (const tool of tools) {
+    const registeredName = mcpToolName(config.name, tool.name);
+    toolRegistry.register({
+      definition: {
+        name: registeredName,
+        description: `[MCP:${config.name}] ${tool.description}`,
+        parameters: [],
+        rawSchema: tool.inputSchema,
+      },
+      tier: 1, // MCP tools are read/write based on the server — user explicitly added them
+      async execute(params: Record<string, unknown>): Promise<{ content: string; summary: string; error?: string }> {
+        const client = mcpRegistry.getClient(config.name);
+        if (!client) {
+          return { content: `MCP server "${config.name}" is no longer connected.`, summary: `MCP disconnected: ${config.name}`, error: "mcp_disconnected" };
+        }
+        return client.callTool(tool.name, params);
+      },
+    });
+  }
+  return tools;
 }
 
 function SettingsPanel({ model, thinking, cost, tokens, sessionId, selected }: {

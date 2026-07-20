@@ -1,15 +1,32 @@
 import { HarnessError } from "../errors.js";
 import type { AgentEvent } from "./events.js";
+import type { PermissionRule } from "./permissions.js";
+import { formatRule } from "./permissions.js";
 
-type EntryKind = "user" | "assistant" | "reasoning" | "tool" | "tool_ok" | "tool_error" | "system" | "error";
+type EntryKind = "user" | "assistant" | "reasoning" | "tool" | "tool_ok" | "tool_error" | "system" | "error" | "permit_denied";
 type TranscriptEntry = { readonly kind: EntryKind; readonly text: string };
 
-export type TuiState = { readonly entries: readonly TranscriptEntry[]; readonly currentText: string; readonly currentReasoning: string; readonly status: "idle" | "running"; readonly tokens: number; readonly showThinking: boolean };
+export type TuiState = {
+  readonly entries: readonly TranscriptEntry[];
+  readonly currentText: string;
+  readonly currentReasoning: string;
+  readonly status: "idle" | "running";
+  readonly tokens: number;
+  readonly showThinking: boolean;
+  readonly rules: readonly PermissionRule[];
+};
 
-export type TuiAction = { readonly type: "submit"; readonly input: string } | { readonly type: "event"; readonly event: AgentEvent }
-  | { readonly type: "message"; readonly message: string } | { readonly type: "error"; readonly message: string } | { readonly type: "clear" } | { readonly type: "toggleThinking" };
+export type TuiAction =
+  | { readonly type: "submit"; readonly input: string }
+  | { readonly type: "event"; readonly event: AgentEvent }
+  | { readonly type: "message"; readonly message: string }
+  | { readonly type: "error"; readonly message: string }
+  | { readonly type: "clear" }
+  | { readonly type: "toggleThinking" }
+  | { readonly type: "addRule"; readonly rule: PermissionRule }
+  | { readonly type: "removeRule"; readonly pattern: string };
 
-export function initialTuiState(): TuiState { return { entries: [], currentText: "", currentReasoning: "", status: "idle", tokens: 0, showThinking: false }; }
+export function initialTuiState(): TuiState { return { entries: [], currentText: "", currentReasoning: "", status: "idle", tokens: 0, showThinking: false, rules: [] }; }
 
 export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
   switch (action.type) {
@@ -23,6 +40,12 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
       return { ...state, entries: [], currentText: "", currentReasoning: "" };
     case "toggleThinking":
       return { ...state, showThinking: !state.showThinking };
+    case "addRule": {
+      const existing = state.rules.filter(r => r.pattern !== action.rule.pattern);
+      return { ...state, rules: [...existing, action.rule] };
+    }
+    case "removeRule":
+      return { ...state, rules: state.rules.filter(r => r.pattern !== action.pattern) };
     case "event":
       return reduceAgentEvent(state, action.event);
     default:
@@ -82,6 +105,7 @@ function prefix(kind: EntryKind): string {
     case "tool_error": return "  ✗ ";
     case "system": return "bridge › ";
     case "error": return "⚠️  ";
+    case "permit_denied": return "  🚫 ";
     default: return assertNever(kind);
   }
 }
