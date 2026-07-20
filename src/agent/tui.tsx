@@ -109,8 +109,7 @@ function ChatTui({ session, apiKey }: { readonly session: AgentSession; readonly
         resolveApproval("decline");
         turnController.current.abort();
       } else {
-        setDraft("");
-        setCursor(0);
+        exit();
       }
       return;
     }
@@ -186,8 +185,9 @@ function ChatTui({ session, apiKey }: { readonly session: AgentSession; readonly
     {approval ? <Box flexDirection="column" borderStyle="double" borderColor="yellow" paddingX={1}>
       <Text bold color="yellow">Captain's authorisation required</Text><Text>{formatApprovalRequest(approval)}</Text><Text dimColor>[y] once  [s] session  [n] decline</Text>
     </Box> : null}
-    <Box borderStyle="single" borderColor={state.status === "running" ? "yellow" : "green"} paddingX={1}>
+    <Box borderStyle="single" borderColor={state.status === "running" ? "yellow" : "green"} paddingX={1} justifyContent="space-between">
       <Text>❯ {segments.before}<Text inverse>{segments.cursor}</Text>{segments.after}</Text>
+      <Text dimColor>Ctrl+C exit · /help</Text>
     </Box>
   </Box>;
 }
